@@ -1,0 +1,74 @@
+# ==============================================================================
+# Source Pipeline Configuration Template
+# ==============================================================================
+# Converts raw data files into a standardized SourceSet.
+#
+# Usage:
+#   source .venv/bin/activate
+#   source env.sh
+#   haistep-source --config <this_file>.yaml
+#
+# Or via test script:
+#   python test/test_haistep/test_1_source/test_source.py --config <this_file>.yaml
+# ==============================================================================
+
+# External data version (reference data like NDC, NPI codes)
+external_version: "@v1215"
+
+SourceArgs:
+  # -------------------------------------------------------------------
+  # raw_data_name  (REQUIRED)
+  #   Name of the cohort directory in the SourceStore.
+  #   Must match a directory under _WorkSpace/0-RawDataStore/
+  #   or _WorkSpace/1-SourceStore/.
+  #   Examples: "OhioT1DM", "WellDoc2022CGM", "CGMacros", "dubosson"
+  # -------------------------------------------------------------------
+  raw_data_name: "OhioT1DM"
+
+  # -------------------------------------------------------------------
+  # SourceFnName  (REQUIRED)
+  #   Name of the SourceFn to use for processing.
+  #   Must match a file in code/haifn/fn_source/ (without .py).
+  #   Available SourceFns:
+  #     WellDocDataV251226   (WellDoc proprietary)
+  #     OhioT1DMxmlv250302   (OhioT1DM public)
+  #     CGMacrosV251227      (CGMacros public)
+  #     dubossonV251227      (Dubosson public)
+  #     AIREADIv2V251226     (AIREADI public)
+  # -------------------------------------------------------------------
+  SourceFnName: "OhioT1DMxmlv250302"
+
+  # -------------------------------------------------------------------
+  # raw_data_path  (OPTIONAL)
+  #   Path to the raw data directory.
+  #   - null / omitted: auto-discover from SourceStore
+  #   - Local path: absolute or relative path to raw data folder
+  #   - S3 path: "s3://bucket/path/to/data"
+  #   If given, overrides auto-discovery and cleans old @SourceFn caches.
+  # -------------------------------------------------------------------
+  raw_data_path: "_WorkSpace/0-RawDataStore/OhioT1DM"
+
+  # -------------------------------------------------------------------
+  # Cache settings  (OPTIONAL)
+  #   use_cache:  If true, skip processing and load from cached SourceSet
+  #   save_cache: If true, save processed output to disk
+  # -------------------------------------------------------------------
+  use_cache: true
+  save_cache: true
+
+
+# ==============================================================================
+# Output location:
+#   _WorkSpace/1-SourceStore/<raw_data_name>/@<SourceFnName>/
+#
+# Example:
+#   _WorkSpace/1-SourceStore/OhioT1DM/@OhioT1DMxmlv250302/
+#       CGM.parquet
+#       Medication.parquet
+#       Diet.parquet
+#       Exercise.parquet
+#       Ptt.parquet
+#       Height.parquet
+#       Weight.parquet
+#       manifest.json
+# ==============================================================================

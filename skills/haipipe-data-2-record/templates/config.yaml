@@ -1,0 +1,89 @@
+# ==============================================================================
+# Record Pipeline Configuration Template
+# ==============================================================================
+# Converts a SourceSet into temporally-aligned structured records (RecordSet).
+#
+# Usage:
+#   source .venv/bin/activate
+#   source env.sh
+#   haistep-record --config <this_file>.yaml
+#
+# Or via test script:
+#   python test/test_haistep/test_2_record/test_record.py --config <this_file>.yaml
+# ==============================================================================
+
+# External data version
+external_version: "@v1215"
+
+# -------------------------------------------------------------------
+# source_set_name: Name of the input SourceSet
+#   Format: "<CohortName>/@<SourceFnName>"
+#   Must match an existing SourceSet in _WorkSpace/1-SourceStore/
+# -------------------------------------------------------------------
+source_set_name: "OhioT1DM/@OhioT1DMxmlv250302"
+
+
+# -------------------------------------------------------------------
+# HumanRecords: Maps HumanFn name to list of RecordFn names
+#   HumanFn creates the entity wrapper (demographics)
+#   RecordFns process each data type from SourceSet
+#
+#   Available HumanFn: HmPtt
+#   Available RecordFn: Ptt, CGM5Min, Diet5Min, Exercise5Min, Med5Min
+#
+#   The mapping is domain-configurable. For CGM domain:
+#     HmPtt: [Ptt, CGM5Min, Diet5Min, Exercise5Min, Med5Min]
+#   For a hypothetical EHR domain:
+#     HmPatient: [Encounters, Labs, Vitals, Medications]
+# -------------------------------------------------------------------
+HumanRecords:
+  HmPtt:
+    - Ptt
+    - CGM5Min
+    - Diet5Min
+    - Exercise5Min
+    - Med5Min
+
+# -------------------------------------------------------------------
+# record_set_version: Version number for the output RecordSet
+#   Output name is auto-generated: <CohortName>_v<N>RecSet
+#   Example: OhioT1DM_v0RecSet
+#   Default: 0
+# -------------------------------------------------------------------
+record_set_version: 0
+
+
+# -------------------------------------------------------------------
+# Optional: Processing parameters (can also be passed to pipeline.run())
+#   record_set_label: Label for ID generation (integer, default 1)
+#   use_cache: If true, load from cache if available (default true)
+#   save_cache: If true, save processed output to cache (default true)
+# -------------------------------------------------------------------
+# record_set_label: 1
+# use_cache: false
+# save_cache: true
+
+
+# ==============================================================================
+# Output: _WorkSpace/2-RecStore/<CohortName>_v<N>RecSet/
+#
+# The RecordSet has a FLAT directory structure:
+#   Human-HmPtt/                    <- Human-{HumanName}/
+#     df_Human.parquet
+#     schema.json
+#   Record-HmPtt.Ptt/              <- Record-{HumanName}.{RecordName}/
+#     df_RecAttr.parquet
+#     df_RecIndex.parquet
+#   Record-HmPtt.CGM5Min/
+#     df_RecAttr.parquet
+#     df_RecIndex.parquet
+#   Record-HmPtt.Diet5Min/
+#     ...
+#   Record-HmPtt.Exercise5Min/
+#     ...
+#   Record-HmPtt.Med5Min/
+#     ...
+#   manifest.json
+#
+# NOTE: Structure is FLAT, NOT hierarchical (not HmPtt/<PatientID>/CGM5Min/)
+# ==============================================================================

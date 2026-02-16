@@ -1,0 +1,169 @@
+# ==============================================================================
+# Case Pipeline Configuration Template
+# ==============================================================================
+# Converts a RecordSet into event-triggered cases (CaseSet).
+# A Trigger identifies time points; CaseFn extracts features at each trigger.
+#
+# Usage:
+#   source .venv/bin/activate
+#   source env.sh
+#   haistep-case --config <this_file>.yaml
+#
+# Or via test script:
+#   python test/test_haistep/test_3_case/test_case.py --config <this_file>.yaml
+#
+# Output structure (all files at ROOT level, NO subdirectory):
+#   _WorkSpace/3-CaseStore/{RecSetName}/@v{N}CaseSet-{TriggerFolderName}/
+#     +-- df_case.parquet              Base case data
+#     +-- df_lts.parquet               LTS segments (optional)
+#     +-- df_Human_Info.parquet        Patient metadata (optional)
+#     +-- @CGMValueBf24h.parquet       CaseFn features (at ROOT)
+#     +-- @CGMValueAf24h.parquet       CaseFn features (at ROOT)
+#     +-- cf_to_cfvocab.json           Vocabulary per CaseFn
+#     +-- manifest.json
+# ==============================================================================
+
+# External data version
+external_version: "@v1215"
+
+# -------------------------------------------------------------------
+# record_set_name: Name of the input RecordSet
+#   Must match an existing RecordSet in _WorkSpace/2-RecStore/
+# -------------------------------------------------------------------
+record_set_name: "OhioT1DM_v0RecSet"
+
+CaseArgs:
+  # -------------------------------------------------------------------
+  # Case_Args: List of operation blocks (trigger, filter, feature stages)
+  #   - Trigger operation:  {'TriggerName': str, 'TriggerArgs': dict}
+  #   - Filter operation:   {'FilterName': str, 'FilterArgs': dict}  (optional)
+  #   - Feature stage:      {'CaseFnName': str, 'CaseFnList': list, 'CaseFnArgs': dict}
+  # -------------------------------------------------------------------
+  Case_Args:
+
+    # Stage 1: Trigger -- identifies WHEN cases happen
+    - TriggerName: 'CGM5MinLTS'
+      TriggerArgs:
+
+        TriggerFolderName: "CGM5MinLTS-Ohio"
+
+        # Case ID columns (what uniquely identifies each case)
+        case_id_columns:
+          - 'PID'
+          - 'lts_id'
+          - 'ObsDT'
+        case_raw_id_columns:
+          - 'PatientID'
+          - 'ObsDT'
+        HumanID_list:
+          - 'PID'
+        ObsDT: 'ObsDT'
+
+        # -----------------------------------------------------------
+        # ROName_to_RONameArgs: Record Object specification
+        #   Keys: 'h{HumanFn}.r{RecordFn}' (e.g., 'hHmPtt.rCGM5Min')
+        #   attribute_columns: Which columns to load
+        #   RecDT: Datetime column for temporal alignment
+        # -----------------------------------------------------------
+        ROName_to_RONameArgs:
+          'hHmPtt.rCGM5Min':
+            attribute_columns:
+              - 'PID'
+              - 'PatientID'
+              - 'DT_s'
+              - 'BGValue'
+            RecDT: 'DT_s'
+          'hHmPtt.rPtt':
+            attribute_columns:
+              - 'PID'
+              - 'Gender'
+              - 'YearOfBirth'
+              - 'DiseaseType'
+
+        # -----------------------------------------------------------
+        # Patient split info (for train/test splitting)
+        #   If path specified but file MISSING -> ERROR
+        #   If set to null -> defaults: split='unsplit', phase='all'
+        # -----------------------------------------------------------
+        patient_info_path: '_WorkSpace/2-RecStore/0-PreviousData/PID-PatientID-PatientSplitInfo.parquet'
+
+        # -----------------------------------------------------------
+        # LTS Generation Configuration
+        #   min_segment_length: Min CGM segment length (points)
+        #     288 = 24 hours at 5-min intervals
+        #   max_consecutive_missing: Max gaps to interpolate
+        #     3 = 15 minutes
+        # -----------------------------------------------------------
+        min_segment_length: 288
+        max_consecutive_missing: 3
+
+        # -----------------------------------------------------------
+        # Sampling Strategy
+        #   stride: Sampling frequency
+        #     null = 1 per segment
+        #     1 = every 5 minutes
+        #     12 = hourly (12 x 5min)
+        #   buffer_start/end: Skip N points at segment edges
+        #     240 = 20 hours
+        # -----------------------------------------------------------
+        stride: 12
+        buffer_start: 240
+        buffer_end: 240
+
+        # -----------------------------------------------------------
+        # Event records to attach to LTS segments
+        #   Set to [] to exclude all events (faster, smaller output)
+        # -----------------------------------------------------------
+        event_record_names: ['Diet5Min', 'Med5Min', 'Exercise5Min']
+
+    # Stage 2 (optional): Filter -- removes cases by condition
+    # - FilterName: 'HighRisk'
+    #   FilterArgs:
+    #     condition: ['risk_score', '>=', 0.5]
+
+    # Stage 3: Feature extraction -- WHAT features to extract at each trigger
+    - CaseFnName: CGMFeatures
+      CaseFnList:
+          - CGMValueBf24h
+          - CGMValueAf24h
+          - DEMEventBf24h
+          - DEMEventAf24h
+          - PDemoBase
+      CaseFnArgs: {}
+
+  # -------------------------------------------------------------------
+  # CaseFn_list: Also accepted at CaseArgs level (alternative to CaseFnList above)
+  #   Must be registered CaseFn names from code/haifn/fn_case/case_casefn/
+  # -------------------------------------------------------------------
+  CaseFn_list: ['CGMValueBf24h', 'CGMValueAf24h', 'DEMEventBf24h', 'DEMEventAf24h', 'PDemoBase']
+
+  # -------------------------------------------------------------------
+  # case_set_version: Version number for the output CaseSet
+  #   Output path: @v{N}CaseSet-{TriggerFolderName}/
+  # -------------------------------------------------------------------
+  case_set_version: 0
+
+  # Processing options
+  use_cache: false
+
+
+# ==============================================================================
+# Output: _WorkSpace/3-CaseStore/{RecSetName}/@v{N}CaseSet-{TriggerFolderName}/
+#
+# Available TriggerFn names:
+#   CGM5MinLTS      Long time series segments
+#   CGM5MinDfCase   DataFrame case trigger
+#   CGM5MinEvent    CGM event detection trigger
+#   CGM5MinEntry    Every CGM reading as trigger
+#   DfCaseInput     DataFrame input trigger
+#
+# Available CaseFn names:
+#   CGMValueBf24h   CGM values 24h before trigger        (returns --tid)
+#   CGMValueAf24h   CGM values 24h after trigger         (returns --tid)
+#   DEMEventBf24h   Diet/Exercise/Med events 24h before  (returns --str)
+#   DEMEventAf24h   Diet/Exercise/Med events 24h after   (returns --str)
+#   PDemoBase       Patient demographics baseline        (returns --val)
+#
+# CaseFn return keys are SUFFIX-ONLY (e.g., '--tid').
+# Pipeline auto-prefixes with CaseFnName: CGMValueBf24h--tid
+# ==============================================================================
