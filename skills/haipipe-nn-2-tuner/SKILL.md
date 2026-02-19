@@ -334,6 +334,682 @@ TEFM tuners:              code/hainn/tefm/models/
 
 ---
 
+Test Notebook: What Layer 2 Tests
+==================================
+
+The tuner test exercises the Tuner wrapper in isolation (NO Instance).
+It verifies transform_fn, fit, infer, and save/load work correctly.
+
+**Expected steps:**
+
+```
+Step 1: Load config (display_df with tuner_name, architecture)
+Step 2: Load AIData (print(aidata), print(sample))
+Step 3: Create Tuner (display_df with mode, params)
+Step 4: Prepare data:
+        4a: transform_fn -- BEFORE/AFTER pattern:
+            print(raw_data), print(raw_data[0])
+            -> run transform_fn ->
+            print(ds_tfm), print(ds_tfm[0])
+            + verify token range assertions
+        4b: get_tfm_data -- BEFORE/AFTER pattern:
+            print(aidata)
+            -> run get_tfm_data ->
+            print each split dataset
+            + display_df with split summary
+Step 5: Fit:
+        print(data_fit) before calling
+        -> tuner.fit(data_fit, TrainingArgs) ->
+        display_df with training time, final loss
+Step 6: Infer (test multiple input types):
+        Type A: Dict[str, Dataset]
+            print(input_dict) before
+            -> tuner.infer(input) ->
+            print(output keys, loss, shapes) after
+        Type B: Single Dataset
+            print(dataset) before
+            -> tuner.infer(dataset) ->
+            print(output) after
+        display_df with both results
+Step 7: Save/load roundtrip (display_df with weight match)
+Step 8: YAML config validation (display_df comparing configs)
+Summary: display_df with all steps PASSED/FAILED
+```
+
+**Key display rules for Layer 2:**
+
+- Step 4 is the most important -- it tests BOTH transform_fn directly
+  AND get_tfm_data via the Tuner (which calls transform_fn internally)
+- Step 6 must test multiple input types (Dict vs single Dataset)
+  because the Tuner's infer() dispatches based on input type
+- Always print the actual data dict before calling fit/infer:
+  ```python
+  print("--- data_fit ---")
+  for k, v in data_fit.items():
+      print(f"  {k}: {v}")
+  ```
+
+**Reference:** `code/hainn/tefm/models/te_clm/test-modeling-te_clm/scripts/test_te_clm_2_tuner.py`
+
+**Snapshot** (from te_clm, for quick reference -- canonical source is the file above):
+
+```python
+#!/usr/bin/env python3
+"""
+TE-CLM Tuner (Layer 2) Step-by-Step Test
+==========================================
+
+Test the TECLMTuner -- the Layer 2 Tuner that wraps the HuggingFace model.
+
+Following the config -> data -> model pipeline pattern:
+
+  Step 1: Setup workspace and load config
+  Step 2: Load AIData (real OhioT1DM)
+  Step 3: Create TECLMTuner from-scratch (architecture_config)
+  Step 4: Prepare data (transform_fn on real data)
+  Step 5: Fit on prepared data
+  Step 6: Infer (multiple input types)
+  Step 7: Save/load roundtrip (tuner_config.json + weights)
+  Step 8: YAML config validation
+  Step 9: Pretrained mode (optional, controlled by SKIP_PRETRAINED)
+
+Usage:
+    source .venv/bin/activate && source env.sh
+    python code/hainn/tefm/models/te_clm/test-modeling-te_clm/scripts/test_te_clm_2_tuner.py
+"""
+
+# %% [markdown]
+# # TE-CLM Tuner (Layer 2) Step-by-Step Test
+#
+# Tests the TECLMTuner in isolation (NO TEFMInstance wrapper),
+# following the config -> data -> model pipeline pattern.
+#
+# Uses real OhioT1DM AIData.
+
+# %% Step 1: Setup and Load Config
+import os
+import json
+import yaml
+import shutil
+
+from pathlib import Path
+
+import torch
+import pandas as pd
+
+from haipipe import setup_workspace
+
+WORKSPACE_PATH, SPACE, logger = setup_workspace()
+
+TEST_DIR = Path(WORKSPACE_PATH) / 'code' / 'hainn' / 'tefm' / 'models' / 'te_clm' / 'test-modeling-te_clm'
+
+SKIP_PRETRAINED = True  # Set False to test pretrained mode (requires model download)
+
+
+def load_yaml(filename):
+    with open(TEST_DIR / filename) as f:
+        return yaml.safe_load(f)
+
+
+def display_df(df):
+    try:
+        from IPython.display import display, HTML
+        display(HTML(df.to_html()))
+    except Exception:
+        print(df.to_string())
+
+
+config = load_yaml('config_te_clm_from_scratch.yaml')
+ModelArgs = config['ModelArgs']
+tuner_args = ModelArgs['model_tuner_args']
+arch = tuner_args['architecture_config']
+TfmArgs = ModelArgs.get('TfmArgs', {})
+
+# Build model_dir from env + config (same structure as real pipeline)
+model_store = os.environ.get('LOCAL_MODELINSTANCE_STORE', '_WorkSpace/5-ModelInstanceStore')
+model_name = config.get('modelinstance_name', 'Demo-TECLM')
+model_version = config.get('modelinstance_version', '@v0001-demo-te_clm-from-scratch')
+model_dir = os.path.join(WORKSPACE_PATH, model_store, model_name, model_version)
+
+display_df(pd.DataFrame([
+    {'key': 'WORKSPACE_PATH',    'value': WORKSPACE_PATH},
+    {'key': 'TEST_DIR',          'value': str(TEST_DIR)},
+    {'key': 'model_dir',         'value': model_dir},
+    {'key': 'model_tuner_name',  'value': ModelArgs['model_tuner_name']},
+    {'key': 'model_name_or_path','value': tuner_args['model_name_or_path']},
+    {'key': 'max_seq_length',    'value': tuner_args['max_seq_length']},
+    {'key': 'vocab_size',        'value': arch['vocab_size']},
+    {'key': 'hidden_size',       'value': arch['hidden_size']},
+    {'key': 'num_hidden_layers', 'value': arch['num_hidden_layers']},
+    {'key': 'tetoken_config',    'value': str(TfmArgs.get('tetoken_config', {}))},
+    {'key': 'special_tokens',    'value': f"PAD={TfmArgs.get('special_tokens', {}).get('pad_token_id', 0)}, num_special={TfmArgs.get('special_tokens', {}).get('num_special_tokens', 10)}"},
+    {'key': 'SKIP_PRETRAINED',   'value': SKIP_PRETRAINED},
+    {'key': 'CUDA available',    'value': torch.cuda.is_available()},
+]).set_index('key'))
+
+
+# %% [markdown]
+# ## Step 2: Load AIData
+#
+# Load real OhioT1DM AIData from disk.
+
+# %% Step 2: Load AIData
+
+from haipipe.aidata_base import AIDataSet
+
+aidata_name = config.get('aidata_name', 'OhioT1DM')
+aidata_version = config.get('aidata_version', '@v0002_events_per1h_tewindow')
+AIDATA_PATH = os.path.join(SPACE['LOCAL_AIDATA_STORE'], aidata_name, aidata_version)
+assert os.path.exists(AIDATA_PATH), f"AIData not found at {AIDATA_PATH}"
+
+aidata = AIDataSet.load_from_disk(AIDATA_PATH)
+
+print(f"AIData: {aidata_name}/{aidata_version}")
+print(f"  Splits: {list(aidata.dataset_dict.keys())}")
+for split, ds in aidata.dataset_dict.items():
+    print(f"    {split}: {len(ds)} cases")
+
+display_df(pd.DataFrame([
+    {'key': 'aidata_name',    'value': aidata_name},
+    {'key': 'aidata_version', 'value': aidata_version},
+    {'key': 'AIDATA_PATH',    'value': AIDATA_PATH},
+]).set_index('key'))
+
+# %% Display AIData structure
+
+print(aidata)
+
+# %% Check a sample from train split
+
+if len(aidata.dataset_dict.get('train', [])) > 0:
+    sample = aidata.dataset_dict['train'][0]
+    print(sample)
+
+
+# %% [markdown]
+# ## Step 3: Create TECLMTuner (From-Scratch)
+#
+# Create tuner with architecture_config to build a tiny model from scratch.
+# Verifies: lazy loading, architecture overrides, parameter count.
+
+# %% Step 3: Create TECLMTuner
+
+from hainn.tefm.models.te_clm import TECLMTuner
+
+tuner = TECLMTuner(
+    TfmArgs=dict(TfmArgs),
+    **tuner_args,
+)
+
+# Before lazy load
+assert tuner.model is None
+assert tuner.architecture_config == arch
+
+# Trigger lazy load
+tuner._ensure_model_loaded()
+
+# Verify architecture overrides
+assert tuner.model is not None
+assert tuner.tokenizer is not None
+assert tuner.model.config.vocab_size == arch['vocab_size']
+assert tuner.model.config.num_hidden_layers == arch['num_hidden_layers']
+assert tuner.model.config.hidden_size == arch['hidden_size']
+
+total_params = sum(p.numel() for p in tuner.model.parameters())
+assert 100_000 < total_params < 5_000_000
+
+display_df(pd.DataFrame([
+    {'property': 'mode',              'value': 'from-scratch'},
+    {'property': 'model_name_or_path','value': tuner.model_name_or_path},
+    {'property': 'vocab_size',        'value': tuner.model.config.vocab_size},
+    {'property': 'hidden_size',       'value': tuner.model.config.hidden_size},
+    {'property': 'num_hidden_layers', 'value': tuner.model.config.num_hidden_layers},
+    {'property': 'num_attention_heads','value': tuner.model.config.num_attention_heads},
+    {'property': 'intermediate_size', 'value': tuner.model.config.intermediate_size},
+    {'property': 'total_params',      'value': f'{total_params:,}'},
+    {'property': 'params (M)',        'value': f'{total_params/1e6:.1f}M'},
+    {'property': 'status',            'value': 'PASSED'},
+]).set_index('property'))
+
+
+# %% [markdown]
+# ## Step 4: Prepare Data
+#
+# Test transform_fn directly, then test get_tfm_data via the tuner.
+# Prepare real data subsets for fit/infer.
+
+# %% Step 4: Prepare Data
+
+from hainn.tefm.models.te_clm.modeling_te_clm import transform_fn
+
+seq_len = tuner_args['max_seq_length']
+vocab_size = arch['vocab_size']
+
+# --- 4a: Test transform_fn directly ---
+test_split_name = 'test-id' if 'test-id' in aidata.dataset_dict else list(aidata.dataset_dict.keys())[0]
+test_ds_full = aidata.dataset_dict[test_split_name]
+ds_raw = test_ds_full.select(range(min(20, len(test_ds_full))))
+
+TfmArgs_full = {
+    **TfmArgs,
+    'model_name_or_path': tuner_args['model_name_or_path'],
+    'max_seq_length': tuner_args['max_seq_length'],
+}
+
+# BEFORE: raw AIData
+print("--- BEFORE transform_fn ---")
+print(ds_raw)
+print()
+print("Sample [0]:")
+print(ds_raw[0])
+
+# %% Run transform_fn (4a)
+
+ds_tfm = transform_fn(ds_raw, TfmArgs_full)
+
+assert 'input_ids' in ds_tfm.column_names
+assert 'attention_mask' in ds_tfm.column_names
+assert 'labels' in ds_tfm.column_names
+assert len(ds_tfm) == len(ds_raw)
+
+# AFTER: transformed (input_ids, attention_mask, labels only)
+print("--- AFTER transform_fn ---")
+print(ds_tfm)
+print()
+print("Sample [0]:")
+print(ds_tfm[0])
+
+# %% Verify token ranges (4a continued)
+
+for i in range(min(5, len(ds_tfm))):
+    ids = ds_tfm[i]['input_ids']
+    mask = ds_tfm[i]['attention_mask']
+    labs = ds_tfm[i]['labels']
+    assert len(ids) == seq_len, f"Sample {i}: len={len(ids)}, expected={seq_len}"
+    # Real tokens (attention_mask==1) should be in [10, 400], pad tokens should be 0 (PAD)
+    for j in range(seq_len):
+        if mask[j] == 1:
+            assert 10 <= ids[j] <= 400, \
+                f"Sample {i}, pos {j}: real token {ids[j]} outside [10, 400]"
+        else:
+            assert ids[j] == 0, \
+                f"Sample {i}, pos {j}: pad token should be 0, got {ids[j]}"
+    for j in range(seq_len):
+        if mask[j] == 0:
+            assert labs[j] == -100
+
+print("Token range assertions PASSED")
+
+# --- 4b: Test get_tfm_data via tuner ---
+print("--- BEFORE get_tfm_data ---")
+print(aidata)
+
+# %% Run get_tfm_data (4b)
+
+data_tfm = tuner.get_tfm_data(aidata)
+
+assert isinstance(data_tfm, dict)
+for split_name in aidata.dataset_dict:
+    assert split_name in data_tfm
+for split_name, ds in data_tfm.items():
+    expected_count = len(aidata.dataset_dict[split_name])
+    assert len(ds) == expected_count
+    if len(ds) > 0:
+        assert 'input_ids' in ds.column_names
+
+print("--- AFTER get_tfm_data ---")
+for split_name, ds in data_tfm.items():
+    print(f"  {split_name}: {ds}")
+
+rows_tfm = []
+for split_name, ds in data_tfm.items():
+    cols = ', '.join(ds.column_names) if len(ds) > 0 else '(empty)'
+    rows_tfm.append({'split': split_name, 'samples': len(ds), 'columns': cols})
+display_df(pd.DataFrame(rows_tfm).set_index('split'))
+
+# Prepare fit data: real subsets
+train_ds_raw = aidata.dataset_dict['train'].select(range(min(100, len(aidata.dataset_dict['train']))))
+test_ds_raw = aidata.dataset_dict[test_split_name].select(range(min(50, len(test_ds_full))))
+data_fit = {'train': train_ds_raw, test_split_name: test_ds_raw}
+
+display_df(pd.DataFrame([
+    {'property': 'fit splits', 'value': ', '.join(f'{k}({len(v)})' for k, v in data_fit.items())},
+    {'property': 'status',     'value': 'PASSED'},
+]).set_index('property'))
+
+
+# %% [markdown]
+# ## Step 5: Fit
+#
+# Train the tuner on the prepared data (real or synthetic).
+# TECLMTuner.fit() creates an HF Trainer and trains for 1 epoch.
+
+# %% Step 5: Fit
+
+import time
+
+TrainingArgs = config.get('TrainingArgs', {}).copy()
+TrainingArgs.update({
+    'num_train_epochs': 1,
+    'per_device_train_batch_size': 4,
+    'per_device_eval_batch_size': 8,
+    'logging_steps': 5,
+    'output_dir': os.path.join(model_dir, 'train_checkpoints'),
+    'save_strategy': 'no',
+    'report_to': [],
+    'gradient_checkpointing': False,
+    'fp16': False,
+})
+
+print("--- data_fit ---")
+for k, v in data_fit.items():
+    print(f"  {k}: {v}")
+
+t_start = time.time()
+tuner.fit(data_fit, TrainingArgs)
+t_elapsed = time.time() - t_start
+
+assert tuner.model is not None
+assert tuner.trainer is not None
+
+final_log = tuner.trainer.state.log_history[-1] if tuner.trainer.state.log_history else {}
+final_loss = final_log.get('train_loss', final_log.get('loss', 'N/A'))
+
+display_df(pd.DataFrame([
+    {'property': 'fit splits',    'value': ', '.join(f'{k}({len(v)})' for k, v in data_fit.items())},
+    {'property': 'training time', 'value': f'{t_elapsed:.1f}s'},
+    {'property': 'final loss',    'value': str(final_loss)},
+    {'property': 'total params',  'value': f'{total_params:,}'},
+    {'property': 'has model',     'value': tuner.model is not None},
+    {'property': 'has trainer',   'value': tuner.trainer is not None},
+    {'property': 'status',        'value': 'PASSED'},
+]).set_index('property'))
+
+shutil.rmtree(TrainingArgs['output_dir'], ignore_errors=True)  # cleanup checkpoints
+
+
+# %% [markdown]
+# ## Step 6: Infer
+#
+# Run inference with the trained tuner.
+# Test two input types:
+# - Type A: Dict[str, Dataset] (multiple splits)
+# - Type B: Single HF Dataset
+
+# %% Step 6: Infer
+
+import math
+
+hidden_size = arch['hidden_size']
+
+# --- Type A: Dict[str, Dataset] ---
+ds_infer_a = aidata.dataset_dict[test_split_name].select(
+    range(min(50, len(aidata.dataset_dict[test_split_name]))))
+data_infer_a = {test_split_name: ds_infer_a}
+n_a = len(ds_infer_a)
+infer_split_a = test_split_name
+
+print("--- Type A input: Dict[str, Dataset] ---")
+for k, v in data_infer_a.items():
+    print(f"  {k}: {v}")
+
+results_a = tuner.infer(data_infer_a)
+
+assert isinstance(results_a, dict)
+assert infer_split_a in results_a
+r_a = results_a[infer_split_a]
+assert 'loss' in r_a
+assert 'embeddings' in r_a
+assert 'predicted_tokens' in r_a
+assert r_a['embeddings'].shape == (n_a, hidden_size), \
+    f"Embeddings shape {r_a['embeddings'].shape} != expected ({n_a}, {hidden_size})"
+assert r_a['predicted_tokens'].shape == (n_a, seq_len), \
+    f"Predicted tokens shape {r_a['predicted_tokens'].shape} != expected ({n_a}, {seq_len})"
+
+print("--- Type A output ---")
+print(f"  keys: {list(results_a.keys())}")
+print(f"  loss: {r_a['loss']:.4f}, perplexity: {math.exp(r_a['loss']):.2f}")
+print(f"  embeddings: {r_a['embeddings'].shape}, predicted_tokens: {r_a['predicted_tokens'].shape}")
+
+# --- Type B: Single HF Dataset ---
+ds_infer_b = aidata.dataset_dict[test_split_name].select(
+    range(min(10, len(aidata.dataset_dict[test_split_name]))))
+n_b = len(ds_infer_b)
+
+print("\n--- Type B input: Single HF Dataset ---")
+print(ds_infer_b)
+
+results_b = tuner.infer(ds_infer_b)
+
+assert isinstance(results_b, dict)
+assert 'loss' in results_b
+assert 'embeddings' in results_b
+assert 'predicted_tokens' in results_b
+assert results_b['embeddings'].shape == (n_b, hidden_size), \
+    f"Embeddings shape {results_b['embeddings'].shape} != expected ({n_b}, {hidden_size})"
+assert results_b['predicted_tokens'].shape == (n_b, seq_len), \
+    f"Predicted tokens shape {results_b['predicted_tokens'].shape} != expected ({n_b}, {seq_len})"
+
+print("--- Type B output ---")
+print(f"  keys: {list(results_b.keys())}")
+print(f"  loss: {results_b['loss']:.4f}, perplexity: {math.exp(results_b['loss']):.2f}")
+print(f"  embeddings: {results_b['embeddings'].shape}, predicted_tokens: {results_b['predicted_tokens'].shape}")
+
+display_df(pd.DataFrame([
+    {'property': 'Type A input',       'value': f'Dict ({infer_split_a}: {n_a} samples)'},
+    {'property': 'Type A loss',        'value': f'{r_a["loss"]:.4f}'},
+    {'property': 'Type A perplexity',  'value': f'{math.exp(r_a["loss"]):.2f}'},
+    {'property': 'Type A embeddings',  'value': str(r_a['embeddings'].shape)},
+    {'property': 'Type B input',       'value': f'Single Dataset ({n_b} samples)'},
+    {'property': 'Type B loss',        'value': f'{results_b["loss"]:.4f}'},
+    {'property': 'Type B perplexity',  'value': f'{math.exp(results_b["loss"]):.2f}'},
+    {'property': 'Type B embeddings',  'value': str(results_b['embeddings'].shape)},
+    {'property': 'status',             'value': 'PASSED'},
+]).set_index('property'))
+
+
+# %% [markdown]
+# ## Step 7: Save/Load Roundtrip
+#
+# Save the trained tuner, load it back, verify:
+# - tuner_config.json persists architecture_config and hyperparams
+# - Loaded model has identical architecture
+# - Weights match within tolerance
+
+# %% Step 7: Save/Load Roundtrip
+
+tmp_dir = os.path.join(model_dir, 'model')
+
+# Save
+tuner.save_model(key='MAIN', model_dir=tmp_dir)
+save_path = os.path.join(tmp_dir, 'model_MAIN')
+assert os.path.isdir(save_path)
+
+tuner_config_path = os.path.join(save_path, 'tuner_config.json')
+assert os.path.exists(tuner_config_path)
+
+with open(tuner_config_path) as f:
+    saved_config = json.load(f)
+
+# Verify tuner_config.json has expected fields
+assert saved_config['architecture_config'] == arch
+assert saved_config['model_name_or_path'] == tuner_args['model_name_or_path']
+assert saved_config['max_seq_length'] == tuner_args['max_seq_length']
+
+expected_keys = {
+    'model_name_or_path', 'max_seq_length', 'architecture_config',
+    'learning_rate', 'per_device_train_batch_size', 'weight_decay', 'max_grad_norm',
+}
+assert expected_keys.issubset(set(saved_config.keys())), \
+    f"Missing keys: {expected_keys - set(saved_config.keys())}"
+
+# Load
+loaded = TECLMTuner(
+    model_name_or_path=tuner_args['model_name_or_path'],
+    max_seq_length=tuner_args['max_seq_length'],
+)
+loaded.load_model(key='MAIN', model_dir=tmp_dir)
+
+# Verify attributes restored
+assert loaded.architecture_config == arch
+assert loaded.model_name_or_path == tuner_args['model_name_or_path']
+assert loaded.max_seq_length == tuner_args['max_seq_length']
+assert loaded.model.config.vocab_size == arch['vocab_size']
+assert loaded.model.config.num_hidden_layers == arch['num_hidden_layers']
+assert loaded.model.config.hidden_size == arch['hidden_size']
+
+# Compare weights (move to CPU for comparison)
+orig_state = {k: v.cpu().float() for k, v in tuner.model.state_dict().items()}
+loaded_state = {k: v.cpu().float() for k, v in loaded.model.state_dict().items()}
+assert set(orig_state.keys()) == set(loaded_state.keys())
+
+mismatched = [k for k in orig_state
+              if not torch.allclose(orig_state[k].detach().cpu().float(),
+                                    loaded_state[k].detach().cpu().float(), atol=1e-4)]
+assert len(mismatched) == 0, f"Weight mismatch: {mismatched[:5]}"
+
+saved_files = sorted(os.listdir(save_path))
+
+display_df(pd.DataFrame([
+    {'property': 'save_path',            'value': save_path},
+    {'property': 'saved files',          'value': ', '.join(saved_files)},
+    {'property': 'tuner_config keys',    'value': ', '.join(sorted(saved_config.keys()))},
+    {'property': 'architecture restored','value': loaded.architecture_config == arch},
+    {'property': 'state_dict keys',      'value': len(orig_state)},
+    {'property': 'weight mismatches',    'value': len(mismatched)},
+    {'property': 'status',               'value': 'PASSED'},
+]).set_index('property'))
+
+shutil.rmtree(tmp_dir)
+
+
+# %% [markdown]
+# ## Step 8: YAML Config Validation
+#
+# Verify both YAML configs match the pipeline format:
+# - ModelInstanceClass, ModelArgs, TrainingArgs keys present
+# - model_tuner_name is TECLMTuner
+# - from-scratch has architecture_config
+
+# %% Step 8: YAML Config Validation
+
+fs_cfg = load_yaml('config_te_clm_from_scratch.yaml')
+pt_cfg = load_yaml('config_te_clm_pretrained.yaml')
+
+required_top_keys = {
+    'aidata_name', 'aidata_version',
+    'modelinstance_name', 'modelinstance_version',
+    'ModelInstanceClass', 'ModelArgs', 'TrainingArgs', 'InferenceArgs', 'EvaluationArgs',
+}
+
+# From-scratch assertions
+assert required_top_keys.issubset(set(fs_cfg.keys())), \
+    f"Missing keys in from_scratch: {required_top_keys - set(fs_cfg.keys())}"
+assert fs_cfg['ModelInstanceClass'] == 'TEFM'
+assert fs_cfg['aidata_name'] == 'OhioT1DM'
+assert fs_cfg['modelinstance_name'] == 'Demo-TECLM'
+assert fs_cfg['ModelArgs']['model_tuner_name'] == 'TECLMTuner'
+assert 'architecture_config' in fs_cfg['ModelArgs']['model_tuner_args']
+assert fs_cfg['ModelArgs']['model_tuner_args']['architecture_config']['vocab_size'] == 401
+assert 'TfmArgs' in fs_cfg['ModelArgs']
+assert 'InferenceSetNames' in fs_cfg['InferenceArgs']
+assert 'EvalSetNames' in fs_cfg['EvaluationArgs']
+
+# Pretrained assertions
+assert required_top_keys.issubset(set(pt_cfg.keys())), \
+    f"Missing keys in pretrained: {required_top_keys - set(pt_cfg.keys())}"
+assert pt_cfg['ModelInstanceClass'] == 'TEFM'
+assert pt_cfg['ModelArgs']['model_tuner_name'] == 'TECLMTuner'
+assert pt_cfg['pretrained_modelinstance_name'] == 'Demo-TECLM'
+assert pt_cfg['pretrained_modelinstance_version'] == '@v0001-demo-te_clm-from-scratch'
+
+# Architecture configs must match between from-scratch and pretrained
+assert fs_cfg['ModelArgs']['model_tuner_args']['architecture_config'] == \
+    pt_cfg['ModelArgs']['model_tuner_args']['architecture_config']
+
+rows = []
+for name, cfg in [('from_scratch', fs_cfg), ('pretrained', pt_cfg)]:
+    rows.append({
+        'config': name,
+        'ModelInstanceClass': cfg['ModelInstanceClass'],
+        'model_tuner_name': cfg['ModelArgs']['model_tuner_name'],
+        'has architecture_config': 'architecture_config' in cfg['ModelArgs']['model_tuner_args'],
+        'vocab_size': cfg['ModelArgs']['model_tuner_args']['architecture_config']['vocab_size'],
+        'has TfmArgs': 'TfmArgs' in cfg['ModelArgs'],
+    })
+
+display_df(pd.DataFrame(rows).set_index('config'))
+print("PASSED")
+
+
+# %% [markdown]
+# ## Step 9: Pretrained Mode (Optional)
+#
+# Load PRETRAINED model (no architecture_config).
+# Controlled by SKIP_PRETRAINED flag.
+
+# %% Step 9: Pretrained Mode
+
+if SKIP_PRETRAINED:
+    display_df(pd.DataFrame([
+        {'property': 'mode', 'value': 'pretrained'},
+        {'property': 'status', 'value': 'SKIPPED (SKIP_PRETRAINED=True)'},
+    ]).set_index('property'))
+
+else:
+    config_pt = load_yaml('config_te_clm_pretrained.yaml')
+    tuner_args_pt = config_pt['ModelArgs']['model_tuner_args']
+
+    tuner_pt = TECLMTuner(
+        model_name_or_path=tuner_args_pt['model_name_or_path'],
+        max_seq_length=tuner_args_pt['max_seq_length'],
+        learning_rate=tuner_args_pt['learning_rate'],
+    )
+
+    assert tuner_pt.architecture_config == {}
+
+    tuner_pt._ensure_model_loaded()
+    assert tuner_pt.model is not None
+    assert tuner_pt.tokenizer is not None
+    assert tuner_pt.model.config.vocab_size != 401
+
+    total_params_pt = sum(p.numel() for p in tuner_pt.model.parameters())
+
+    display_df(pd.DataFrame([
+        {'property': 'mode',              'value': 'pretrained'},
+        {'property': 'model_name_or_path','value': tuner_args_pt['model_name_or_path']},
+        {'property': 'vocab_size',        'value': tuner_pt.model.config.vocab_size},
+        {'property': 'hidden_size',       'value': tuner_pt.model.config.hidden_size},
+        {'property': 'total_params',      'value': f'{total_params_pt:,}'},
+        {'property': 'status',            'value': 'PASSED'},
+    ]).set_index('property'))
+
+
+# %% [markdown]
+# ## Summary
+
+# %% Summary
+
+results = pd.DataFrame([
+    {'test': '1. Load Config',            'status': 'PASSED'},
+    {'test': '2. Load AIData',            'status': 'PASSED'},
+    {'test': '3. Create TECLMTuner',      'status': 'PASSED'},
+    {'test': '4. Prepare Data',           'status': 'PASSED'},
+    {'test': '5. Fit',                    'status': 'PASSED'},
+    {'test': '6. Infer',                  'status': 'PASSED'},
+    {'test': '7. Save/Load Roundtrip',    'status': 'PASSED'},
+    {'test': '8. YAML Config Validation', 'status': 'PASSED'},
+    {'test': '9. Pretrained Mode',        'status': 'SKIPPED' if SKIP_PRETRAINED else 'PASSED'},
+]).set_index('test')
+
+display_df(results)
+
+# Cleanup model_dir
+shutil.rmtree(model_dir, ignore_errors=True)
+```
+
+---
+
 See Also
 ========
 

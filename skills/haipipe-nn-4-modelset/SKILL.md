@@ -561,6 +561,513 @@ Model registry:         code/hainn/model_registry.py
 
 ---
 
+Test Notebook: What Layer 4 Tests
+==================================
+
+The modelset test exercises the full packaging pipeline: train an Instance,
+package into ModelInstance_Set, save/load to disk, inference from loaded model.
+
+**Expected steps:**
+
+```
+Step 1: Load config (display_df with ModelInstanceClass, tuner_name)
+Step 2: Load AIData (print(aidata), print(sample))
+Step 3: Create Instance + init() (display_df with instance/tuner class)
+Step 4: Prepare data:
+        print(data_fit) and print(data_infer)
+        display_df with split summary
+Step 5: Fit:
+        print(data_fit) before calling
+        -> instance.fit(data_fit, TrainingArgs) ->
+        display_df with fit status
+Step 6: Package into ModelInstance_Set:
+        Create ModelInstance_Set with instance, training_results, manifest
+        display_df with modelset class, set_name, training/manifest presence
+Step 7: Save to disk:
+        modelset.save_to_disk() -> verify directory structure
+        display_df with save_path, directory items, manifest fields
+Step 8: Load from disk:
+        Load manifest, _load_data_from_disk() -> verify weights match
+        display_df with loaded class, set_name, weight mismatches
+Step 9: Inference from loaded model:
+        print(data_infer) before calling
+        -> loaded_model.inference(data_infer) ->
+        print(results) after -- show keys, loss, shapes
+        display_df with loss, perplexity, shapes
+Summary: display_df with all steps PASSED/FAILED
+```
+
+**Key display rules for Layer 4:**
+
+- Steps 6-8 are unique to Layer 4: they test the Asset packaging layer.
+  Show the directory structure (top-level items, model/ items) and verify
+  manifest.json, training/results.json, config.json, metadata.json
+- Step 9 is the end-to-end proof: load a saved model from disk and run
+  inference. Print both input and output to show it works.
+- The save/load roundtrip must verify weight equality (state_dict match)
+  across the full chain: Instance -> ModelInstance_Set -> disk -> load
+
+**Reference:** `code/hainn/tefm/models/te_clm/test-modeling-te_clm/scripts/test_te_clm_4_modelset.py`
+
+**Snapshot** (from te_clm, for quick reference -- canonical source is the file above):
+
+```python
+#!/usr/bin/env python3
+"""
+TE-CLM ModelInstance_Set (Layer 4) Step-by-Step Test
+====================================================
+
+Test ModelInstance_Set wrapping TEFMInstance with TECLMTuner -- the
+Layer 4 asset packaging layer.
+
+Following the config -> data -> model pipeline pattern:
+
+  Step 1: Setup workspace and load config
+  Step 2: Load AIData (real OhioT1DM)
+  Step 3: Create TEFMInstance + init()
+  Step 4: Prepare data (real subsets)
+  Step 5: Fit (train the instance for packaging)
+  Step 6: Package into ModelInstance_Set
+  Step 7: Save to disk (save_to_disk)
+  Step 8: Load from disk and verify
+  Step 9: Inference from loaded model
+
+Usage:
+    source .venv/bin/activate && source env.sh
+    python code/hainn/tefm/models/te_clm/test-modeling-te_clm/scripts/test_te_clm_4_modelset.py
+"""
+
+# %% [markdown]
+# # TE-CLM ModelInstance_Set (Layer 4) Step-by-Step Test
+#
+# Tests the full packaging pipeline,
+# following the config -> data -> model pipeline pattern.
+#
+# Uses real OhioT1DM AIData.
+
+# %% Step 1: Setup and Load Config
+import os
+import json
+import yaml
+import shutil
+
+from pathlib import Path
+
+import torch
+import pandas as pd
+
+from haipipe import setup_workspace
+
+WORKSPACE_PATH, SPACE, logger = setup_workspace()
+
+TEST_DIR = Path(WORKSPACE_PATH) / 'code' / 'hainn' / 'tefm' / 'models' / 'te_clm' / 'test-modeling-te_clm'
+
+
+def load_yaml(filename):
+    with open(TEST_DIR / filename) as f:
+        return yaml.safe_load(f)
+
+
+def display_df(df):
+    try:
+        from IPython.display import display, HTML
+        display(HTML(df.to_html()))
+    except Exception:
+        print(df.to_string())
+
+
+config = load_yaml('config_te_clm_from_scratch.yaml')
+ModelArgs = config['ModelArgs']
+tuner_args = ModelArgs['model_tuner_args']
+arch = tuner_args['architecture_config']
+TfmArgs = ModelArgs.get('TfmArgs', {})
+
+# Build model_dir from env + config (same structure as real pipeline)
+model_store = os.environ.get('LOCAL_MODELINSTANCE_STORE', '_WorkSpace/5-ModelInstanceStore')
+model_name = config.get('modelinstance_name', 'Demo-TECLM')
+model_version = config.get('modelinstance_version', '@v0001-demo-te_clm-from-scratch')
+model_dir = os.path.join(WORKSPACE_PATH, model_store, model_name, model_version)
+
+display_df(pd.DataFrame([
+    {'key': 'WORKSPACE_PATH',     'value': WORKSPACE_PATH},
+    {'key': 'TEST_DIR',           'value': str(TEST_DIR)},
+    {'key': 'model_dir',          'value': model_dir},
+    {'key': 'ModelInstanceClass',  'value': config['ModelInstanceClass']},
+    {'key': 'model_tuner_name',   'value': ModelArgs['model_tuner_name']},
+    {'key': 'vocab_size',         'value': arch['vocab_size']},
+    {'key': 'max_seq_length',     'value': tuner_args['max_seq_length']},
+    {'key': 'special_tokens',     'value': f"PAD={TfmArgs.get('special_tokens', {}).get('pad_token_id', 0)}, num_special={TfmArgs.get('special_tokens', {}).get('num_special_tokens', 10)}"},
+    {'key': 'CUDA available',     'value': torch.cuda.is_available()},
+]).set_index('key'))
+
+
+# %% [markdown]
+# ## Step 2: Load AIData
+#
+# Load real OhioT1DM AIData from disk.
+
+# %% Step 2: Load AIData
+
+from haipipe.aidata_base import AIDataSet
+
+aidata_name = config.get('aidata_name', 'OhioT1DM')
+aidata_version = config.get('aidata_version', '@v0002_events_per1h_tewindow')
+AIDATA_PATH = os.path.join(SPACE['LOCAL_AIDATA_STORE'], aidata_name, aidata_version)
+assert os.path.exists(AIDATA_PATH), f"AIData not found at {AIDATA_PATH}"
+
+aidata = AIDataSet.load_from_disk(AIDATA_PATH)
+
+print(f"AIData: {aidata_name}/{aidata_version}")
+print(f"  Splits: {list(aidata.dataset_dict.keys())}")
+for split, ds in aidata.dataset_dict.items():
+    print(f"    {split}: {len(ds)} cases")
+
+display_df(pd.DataFrame([
+    {'key': 'aidata_name',    'value': aidata_name},
+    {'key': 'aidata_version', 'value': aidata_version},
+    {'key': 'AIDATA_PATH',    'value': AIDATA_PATH},
+]).set_index('key'))
+
+# %% Display AIData structure
+
+print(aidata)
+
+# %% Check a sample from train split
+
+if len(aidata.dataset_dict.get('train', [])) > 0:
+    sample = aidata.dataset_dict['train'][0]
+    print(sample)
+
+
+# %% [markdown]
+# ## Step 3: Create TEFMInstance + init()
+#
+# Create a TEFMConfig, instantiate TEFMInstance, call init().
+
+# %% Step 3: Create TEFMInstance + init()
+
+from hainn.tefm.instance_tefm import TEFMInstance
+from hainn.tefm.configuration_tefm import TEFMConfig
+
+tefm_config = TEFMConfig(
+    ModelArgs=config['ModelArgs'],
+    TrainingArgs=config['TrainingArgs'],
+    InferenceArgs=config.get('InferenceArgs', {}),
+    EvaluationArgs=config.get('EvaluationArgs', {}),
+)
+
+instance = TEFMInstance(config=tefm_config, SPACE=SPACE)
+instance.init()
+
+assert instance.model_tuner is not None
+
+display_df(pd.DataFrame([
+    {'property': 'instance class', 'value': type(instance).__name__},
+    {'property': 'tuner class',    'value': type(instance.model_tuner).__name__},
+    {'property': 'status',         'value': 'PASSED'},
+]).set_index('property'))
+
+
+# %% [markdown]
+# ## Step 4: Prepare Data
+#
+# Use real data subsets for fit and inference.
+
+# %% Step 4: Prepare Data
+
+seq_len = tuner_args['max_seq_length']
+vocab_size = arch['vocab_size']
+
+train_ds = aidata.dataset_dict['train'].select(
+    range(min(100, len(aidata.dataset_dict['train']))))
+test_split_name = 'test-id' if 'test-id' in aidata.dataset_dict else list(aidata.dataset_dict.keys())[-1]
+test_ds = aidata.dataset_dict[test_split_name].select(
+    range(min(50, len(aidata.dataset_dict[test_split_name]))))
+
+data_fit = {'train': train_ds, test_split_name: test_ds}
+# Use 'test' as key for inference -- must match InferenceArgs.InferenceSetNames
+data_infer = {'test': test_ds.select(range(min(8, len(test_ds))))}
+
+print("--- data_fit ---")
+for k, v in data_fit.items():
+    print(f"  {k}: {v}")
+print()
+print("--- data_infer ---")
+for k, v in data_infer.items():
+    print(f"  {k}: {v}")
+
+display_df(pd.DataFrame([
+    {'property': 'fit splits',  'value': ', '.join(f'{k}({len(v)})' for k, v in data_fit.items())},
+    {'property': 'infer splits','value': ', '.join(f'{k}({len(v)})' for k, v in data_infer.items())},
+    {'property': 'status',      'value': 'PASSED'},
+]).set_index('property'))
+
+
+# %% [markdown]
+# ## Step 5: Fit
+#
+# Train the instance to get a fitted model for packaging.
+
+# %% Step 5: Fit
+
+train_output_dir = os.path.join(model_dir, 'train_checkpoints')
+
+print("--- fit input ---")
+for k, v in data_fit.items():
+    print(f"  {k}: {v}")
+
+instance.fit(
+    data_fit,
+    TrainingArgs={
+        'num_train_epochs': 1,
+        'per_device_train_batch_size': 4,
+        'per_device_eval_batch_size': 8,
+        'save_strategy': 'no',
+        'logging_steps': 5,
+        'report_to': [],
+        'output_dir': train_output_dir,
+        'gradient_checkpointing': False,
+        'fp16': False,
+    },
+)
+
+assert instance.model_tuner.model is not None
+shutil.rmtree(train_output_dir, ignore_errors=True)
+
+display_df(pd.DataFrame([
+    {'property': 'instance class', 'value': type(instance).__name__},
+    {'property': 'tuner class',    'value': type(instance.model_tuner).__name__},
+    {'property': 'model fitted',   'value': instance.model_tuner.model is not None},
+    {'property': 'status',         'value': 'PASSED'},
+]).set_index('property'))
+
+
+# %% [markdown]
+# ## Step 6: Package into ModelInstance_Set
+#
+# Create a ModelInstance_Set with the trained instance,
+# training results, and AIData manifest.
+
+# %% Step 6: Package into ModelInstance_Set
+
+from haipipe.model_base.modelinstance_set import ModelInstance_Set
+
+modelinstance_set_name = 'test_TECLM_ModelSet'
+
+training_results = {
+    'train_loss': 5.89,
+    'eval_loss': 5.92,
+    'epochs': 1,
+    'total_steps': 10,
+}
+
+aidata_set_manifest = {
+    'aidata_name': aidata_name,
+    'created_at': '2026-02-18T00:00:00',
+    'splits': {k: len(v) for k, v in data_fit.items()},
+}
+
+modelset = ModelInstance_Set(
+    modelinstance_set_name=modelinstance_set_name,
+    model_instance=instance,
+    aidata_set_manifest=aidata_set_manifest,
+    training_results=training_results,
+    SPACE=SPACE,
+)
+
+assert modelset is not None
+assert modelset.modelinstance_set_name == modelinstance_set_name
+assert modelset.model_instance is instance
+assert modelset.training_results == training_results
+assert modelset.aidata_set_manifest == aidata_set_manifest
+
+display_df(pd.DataFrame([
+    {'property': 'modelset class',         'value': type(modelset).__name__},
+    {'property': 'modelinstance_set_name', 'value': modelset.modelinstance_set_name},
+    {'property': 'model_instance class',   'value': type(modelset.model_instance).__name__},
+    {'property': 'has training_results',   'value': bool(modelset.training_results)},
+    {'property': 'has aidata_manifest',    'value': bool(modelset.aidata_set_manifest)},
+    {'property': 'status',                 'value': 'PASSED'},
+]).set_index('property'))
+
+
+# %% [markdown]
+# ## Step 7: Save to Disk
+#
+# Use save_to_disk() which creates the full directory structure:
+# model/, training/, evaluation/, manifest.json
+
+# %% Step 7: Save to Disk
+
+save_path = os.path.join(model_dir, modelinstance_set_name)
+
+modelset.save_to_disk(path=save_path, overwrite=True)
+
+assert os.path.isdir(save_path)
+assert os.path.isdir(os.path.join(save_path, 'model'))
+assert os.path.exists(os.path.join(save_path, 'manifest.json'))
+assert os.path.isdir(os.path.join(save_path, 'training'))
+assert os.path.exists(os.path.join(save_path, 'training', 'results.json'))
+
+# Verify model subdirectory
+model_subdir = os.path.join(save_path, 'model')
+assert os.path.exists(os.path.join(model_subdir, 'config.json'))
+assert os.path.exists(os.path.join(model_subdir, 'metadata.json'))
+
+# Verify manifest
+with open(os.path.join(save_path, 'manifest.json')) as f:
+    manifest = json.load(f)
+
+assert manifest.get('modelinstance_set_name') == modelinstance_set_name
+assert manifest.get('model_type') == 'TEFMInstance'
+
+# Verify training results
+with open(os.path.join(save_path, 'training', 'results.json')) as f:
+    saved_training = json.load(f)
+assert saved_training['train_loss'] == training_results['train_loss']
+
+top_items = sorted(os.listdir(save_path))
+model_items = sorted(os.listdir(model_subdir))
+
+display_df(pd.DataFrame([
+    {'property': 'save_path',           'value': save_path},
+    {'property': 'top-level items',     'value': ', '.join(top_items)},
+    {'property': 'model/ items',        'value': ', '.join(model_items[:6])},
+    {'property': 'manifest model_type', 'value': manifest.get('model_type')},
+    {'property': 'manifest set_name',   'value': manifest.get('modelinstance_set_name')},
+    {'property': 'training saved',      'value': saved_training == training_results},
+    {'property': 'status',              'value': 'PASSED'},
+]).set_index('property'))
+
+
+# %% [markdown]
+# ## Step 8: Load from Disk
+#
+# Load the saved ModelInstance_Set back. Verify all components:
+# model_instance, training_results, manifest, weights.
+
+# %% Step 8: Load from Disk
+
+loaded_modelset = ModelInstance_Set(SPACE=SPACE)
+loaded_modelset.modelinstance_set_name = modelinstance_set_name
+
+# Load manifest
+with open(os.path.join(save_path, 'manifest.json')) as f:
+    loaded_manifest = json.load(f)
+
+loaded_modelset._load_data_from_disk(save_path, loaded_manifest)
+
+assert loaded_modelset.model_instance is not None
+assert loaded_modelset.training_results is not None
+assert loaded_modelset.aidata_set_manifest is not None
+assert loaded_modelset.modelinstance_set_name == modelinstance_set_name
+
+loaded_instance = loaded_modelset.model_instance
+assert type(loaded_instance).__name__ == 'TEFMInstance'
+
+# Verify weights match (move to CPU for comparison)
+orig_state = {k: v.cpu().float() for k, v in instance.model_tuner.model.state_dict().items()}
+loaded_state = {k: v.cpu().float() for k, v in loaded_instance.model_tuner.model.state_dict().items()}
+
+assert set(orig_state.keys()) == set(loaded_state.keys())
+mismatched = [
+    k for k in orig_state
+    if not torch.allclose(orig_state[k], loaded_state[k], atol=1e-4)
+]
+assert len(mismatched) == 0, f"Weight mismatch: {mismatched[:5]}"
+
+display_df(pd.DataFrame([
+    {'property': 'loaded class',          'value': type(loaded_modelset).__name__},
+    {'property': 'loaded model class',    'value': type(loaded_instance).__name__},
+    {'property': 'loaded set_name',       'value': loaded_modelset.modelinstance_set_name},
+    {'property': 'training_results keys', 'value': ', '.join(loaded_modelset.training_results.keys())},
+    {'property': 'aidata_manifest keys',  'value': ', '.join(loaded_modelset.aidata_set_manifest.keys())},
+    {'property': 'state_dict keys',       'value': len(loaded_state)},
+    {'property': 'weight mismatches',     'value': len(mismatched)},
+    {'property': 'status',                'value': 'PASSED'},
+]).set_index('property'))
+
+
+# %% [markdown]
+# ## Step 9: Inference from Loaded Model
+#
+# Use get_model_instance() to extract the loaded model, then
+# run inference on test data.
+
+# %% Step 9: Inference from Loaded Model
+
+import math
+
+model_for_infer = loaded_modelset.get_model_instance()
+assert model_for_infer is not None
+
+print("--- inference input ---")
+for k, v in data_infer.items():
+    print(f"  {k}: {v}")
+
+infer_results = model_for_infer.inference(data_infer)
+
+print()
+print("--- inference output ---")
+for k, v in infer_results.items():
+    print(f"  {k}: keys={list(v.keys())}, loss={v['loss']:.4f}, embeddings={v['embeddings'].shape}")
+
+assert infer_results is not None
+# Inference uses InferenceSetNames from config (default: ['test'])
+infer_key = 'test'
+assert infer_key in infer_results, f"Missing '{infer_key}' in results, got: {list(infer_results.keys())}"
+
+test_metrics = infer_results[infer_key]
+assert 'loss' in test_metrics
+assert 'embeddings' in test_metrics
+assert 'predicted_tokens' in test_metrics
+assert test_metrics['loss'] > 0
+
+n_infer = len(data_infer[infer_key])
+assert test_metrics['embeddings'].shape[0] == n_infer
+assert test_metrics['predicted_tokens'].shape[0] == n_infer
+
+perplexity = math.exp(test_metrics['loss'])
+
+display_df(pd.DataFrame([
+    {'property': 'infer model class',      'value': type(model_for_infer).__name__},
+    {'property': 'test samples',           'value': n_infer},
+    {'property': 'test loss',              'value': f'{test_metrics["loss"]:.4f}'},
+    {'property': 'test perplexity',        'value': f'{perplexity:.2f}'},
+    {'property': 'embeddings shape',       'value': str(test_metrics['embeddings'].shape)},
+    {'property': 'predicted_tokens shape', 'value': str(test_metrics['predicted_tokens'].shape)},
+    {'property': 'status',                 'value': 'PASSED'},
+]).set_index('property'))
+
+# Cleanup modelset save/load test
+shutil.rmtree(os.path.join(model_dir, modelinstance_set_name), ignore_errors=True)
+
+
+# %% [markdown]
+# ## Summary
+
+# %% Summary
+
+results_summary = pd.DataFrame([
+    {'test': '1. Load Config',                 'status': 'PASSED'},
+    {'test': '2. Load AIData',                 'status': 'PASSED'},
+    {'test': '3. Create TEFMInstance',         'status': 'PASSED'},
+    {'test': '4. Prepare Data',                'status': 'PASSED'},
+    {'test': '5. Fit',                         'status': 'PASSED'},
+    {'test': '6. Package ModelInstance_Set',   'status': 'PASSED'},
+    {'test': '7. Save to Disk',                'status': 'PASSED'},
+    {'test': '8. Load from Disk',              'status': 'PASSED'},
+    {'test': '9. Inference from Loaded Model', 'status': 'PASSED'},
+]).set_index('test')
+
+display_df(results_summary)
+
+# Cleanup model_dir
+shutil.rmtree(model_dir, ignore_errors=True)
+```
+
+---
+
 See Also
 ========
 

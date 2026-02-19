@@ -360,6 +360,124 @@ Existing families:
 
 ---
 
+Test Notebook Conventions
+=========================
+
+Every model family has a `test-modeling-<name>/` directory with 4 test scripts
+(one per layer) that double as reviewable notebooks:
+
+```
+test-modeling-te_clm/
+├── config_te_clm_from_scratch.yaml
+├── config_te_clm_pretrained.yaml
+├── scripts/
+│   ├── test_te_clm_1_algorithm.py   # Layer 1
+│   ├── test_te_clm_2_tuner.py       # Layer 2
+│   ├── test_te_clm_3_instance.py    # Layer 3
+│   └── test_te_clm_4_modelset.py    # Layer 4
+└── notebooks/                        # Auto-generated from scripts
+    ├── test_te_clm_1_algorithm.ipynb
+    ├── test_te_clm_2_tuner.ipynb
+    ├── test_te_clm_3_instance.ipynb
+    └── test_te_clm_4_modelset.ipynb
+```
+
+**Core display principle:** At every step, the reviewer should see the actual
+data -- what goes IN and what comes OUT. Not just computed summaries.
+
+Two display mechanisms used together:
+
+1. **`print()`** -- Show actual data objects (datasets, samples, dicts)
+2. **`display_df()`** -- Show key-value summary tables (config, metrics, status)
+
+**Variable naming convention** (`type_qualifier`):
+
+```
+Single HF Dataset:
+  ds_raw         raw dataset before transform_fn
+  ds_tfm         dataset after transform_fn (has input_ids, attention_mask, labels)
+
+Dict of datasets:
+  data_tfm       output of get_tfm_data() -- {split_name: transformed_dataset}
+                 (L2 tuner test only -- tests get_tfm_data directly)
+  data_fit       raw datasets for fit -- {split_name: raw_dataset}
+                 (passed to tuner.fit / instance.fit, which transforms internally)
+  data_infer     raw datasets for inference -- {split_name: raw_dataset}
+                 (L3/L4; passed to instance.inference)
+
+Inference (L2 tuner, testing multiple input types):
+  ds_infer_a     single raw dataset used to build data_infer_a
+  data_infer_a   dict input for Type A: {split_name: dataset}
+  ds_infer_b     single raw dataset for Type B (passed directly to tuner.infer)
+```
+
+**Before/after pattern** (the key convention):
+
+```python
+# BEFORE: show what goes into the operation
+print("--- BEFORE transform_fn ---")
+print(ds_raw)                  # the dataset object
+print()
+print("Sample [0]:")
+print(ds_raw[0])               # one concrete sample
+
+# Run the operation
+ds_tfm = transform_fn(ds_raw, TfmArgs)
+
+# AFTER: show what comes out
+print("--- AFTER transform_fn ---")
+print(ds_tfm)                  # the transformed dataset
+print()
+print("Sample [0]:")
+print(ds_tfm[0])               # one concrete transformed sample
+```
+
+This pattern applies to every data operation: transform_fn, get_tfm_data,
+fit, infer, save/load. Always print the input before calling, print the
+output after.
+
+**Step structure** (common to all 4 layers):
+
+```python
+# %% [markdown]
+# ## Step N: Title
+#
+# Brief description of what this step does.
+
+# %% Step N: Title
+
+# ... code with print() and display_df() ...
+
+display_df(pd.DataFrame([
+    {'property': 'key1',   'value': val1},
+    {'property': 'key2',   'value': val2},
+    {'property': 'status', 'value': 'PASSED'},
+]).set_index('property'))
+```
+
+**Summary table** (last cell in every notebook):
+
+```python
+results = pd.DataFrame([
+    {'test': '1. Load Config',   'status': 'PASSED'},
+    {'test': '2. Load AIData',   'status': 'PASSED'},
+    ...
+]).set_index('test')
+display_df(results)
+```
+
+**Notebook regeneration** (after any script change):
+
+```bash
+python code/scripts/convert_to_notebooks.py \
+    --dir <model>/test-modeling-<name>/scripts/ \
+    -o <model>/test-modeling-<name>/notebooks/
+```
+
+**Reference implementation:** `code/hainn/tefm/models/te_clm/test-modeling-te_clm/`
+
+---
+
 See Also
 ========
 
