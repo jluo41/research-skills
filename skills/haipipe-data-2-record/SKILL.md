@@ -259,18 +259,37 @@ To build either type: /haipipe-data-2-record design-chef
 Prerequisites
 =============
 
-1. Python virtual environment activated: `source .venv/bin/activate`
+1. Python virtual environment activated (see note below)
 2. Environment variables loaded: `source env.sh`
 3. Input SourceSet must exist at `_WorkSpace/1-SourceStore/<source_set_name>/`
 4. If SourceSet does not exist, run Source_Pipeline first (see haipipe-data-1-source cook)
+
+**Venv Usage in Claude Code**
+
+`source .venv/bin/activate` does NOT persist across Bash tool calls in Claude Code.
+Always use one of these two approaches instead:
+
+```bash
+# Approach 1: chain in a single call (for scripts)
+source .venv/bin/activate && source env.sh && python <script.py>
+
+# Approach 2: call venv python directly (for one-liners)
+.venv/bin/python <script.py>
+.venv/bin/python -c "import pandas; ..."
+
+# Discover the exact binary name first (may differ by project)
+ls .venv/bin/python*    # e.g., python, python3, python3.14
+```
 
 ---
 
 MUST DO (All Subcommands)
 =========================
 
-1. **Activate** .venv first: `source .venv/bin/activate`
-2. **Load** environment: `source env.sh`
+1. **Activate** .venv: use `source .venv/bin/activate && source env.sh` in one call,
+   OR call venv python directly: `.venv/bin/python script.py`
+   (discover binary with `ls .venv/bin/python*`)
+2. **Load** environment: `source env.sh` (always chain with activate in one call)
 3. **Verify** that input SourceSet exists before running Record_Pipeline
 4. **Use** the correct load API: `RecordSet.load_from_disk(path=..., SPACE=SPACE)`
 5. **Access** data via Name_to_HRF with string keys (Human) and tuple keys (Record)
@@ -312,7 +331,7 @@ Builders (edit these): code-dev/1-PIPELINE/2-Record-WorkSpace/h*.py   <- HumanFn
 Test configs:         config/                  <- discover with ls config/
 Store path:           _WorkSpace/2-RecStore/
 ```
-
+> JL: config can be anywhere. Maybe we can put the config yaml to the code-dev it make it more consistent in the future for an easier reference. 
 ---
 
 See Also

@@ -29,7 +29,7 @@ Every model in this pipeline follows the same 4-layer separation:
 │  HuggingFace-style save/load. Config class. Registry.           │
 │  Files: code/hainn/<model_family>/instance_*.py                 │
 ├─────────────────────────────────────────────────────────────────┤
-│  Layer 2: Tuner                                                 │
+│  Layer 2: Tuner (Train / Optuna)                                │
 │  Wraps ONE algorithm. Handles data conversion, training,        │
 │  inference, serialization. The ONLY layer that imports           │
 │  external libraries.                                            │
@@ -40,6 +40,8 @@ Every model in this pipeline follows the same 4-layer separation:
 │  We don't write this code -- we wrap it in a Tuner.             │
 │  Installed via pip/conda.                                       │
 └─────────────────────────────────────────────────────────────────┘
+
+> JL: For Algorithm, we can also develop our own algorithm_xxxxx.py, the key is that we need to have a forward(x) to y, and that's the most essential part. 
 ```
 
 **Layer numbering note:** Skills use bottom-up numbering (1=Algorithm,
@@ -70,8 +72,9 @@ START: I have an algorithm (e.g., diffusion model, LLM, tree model)
 │  ├─ ONE algorithm, but treatment/context encoded as input feature
 │  │  → Single Tuner + Encoding pattern: model_base = {'MAIN': tuner}
 │  │    (Instance handles the encoding before passing to Tuner)
-│  └─ MULTIPLE algorithms (one per arm/variant)
+│  └─ MULTIPLE algorithms (one per arm/variant) 
 │     → Multi-Tuner pattern: model_base = {'arm1': tuner, 'arm2': tuner}
+| > JL: how do deal with the bandit model here? we need the discussion again here. 
 │
 ├─ Q3: Does your algorithm need Optuna hyperparameter tuning?
 │  ├─ Yes → Implement objective() in Tuner.fit(), store best_params
@@ -136,6 +139,8 @@ Step 4: ModelSet / Pipeline (Layer 4)
    [ ] Run through ModelInstance_Pipeline -- no code changes needed at this layer
    [ ] Pipeline handles: config creation, init, fit, evaluate, PreFn, examples, packaging
 ```
+
+> JL: [ ] Write YAML config (see templates below) This is not totally right because we also need the YAML for every four layer.At the algorithm part, which will need this as well.
 
 ---
 
