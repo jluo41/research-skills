@@ -50,6 +50,22 @@ Config:      config/test-haistep-ohio/3_test_case.yaml
 
 ---
 
+Files
+-----
+
+```
+SKILL.md             Full rules, feature naming, concrete code, MUST DO / MUST NOT
+README.md            This file (quick reference)
+1-load.md            Rules for inspecting CaseSets
+2-cook.md            Rules for running Case_Pipeline
+3-design-chef.md     Rules for creating new TriggerFn/CaseFn builders
+4-design-kitchen.md  Rules for modifying Case_Pipeline framework
+templates/
+  config.yaml        Annotated config template
+```
+
+---
+
 See Also
 --------
 

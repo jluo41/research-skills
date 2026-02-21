@@ -6,43 +6,44 @@ Purpose: Inspect existing RecordSet assets (read-only).
 Use this when you need to understand record structure, verify temporal
 alignment, check record counts, or debug data quality issues.
 
+This subcommand applies to any domain. RecordSet and record names are
+always discovered at runtime -- not listed here.
+
 ---
 
 What To Read
 ============
 
 RecordSets live under `_WorkSpace/2-RecStore/`. The directory structure
-is **FLAT** (not hierarchical by patient):
+is **FLAT** (not hierarchical by entity):
 
 ```
-_WorkSpace/2-RecStore/
-+-- OhioT1DM_v0RecSet/
-|   +-- Human-HmPtt/                  # FLAT: Human-{HumanName}
-|   |   +-- df_Human.parquet
-|   |   +-- schema.json
-|   +-- Record-HmPtt.Ptt/            # FLAT: Record-{HumanName}.{RecordName}
-|   |   +-- df_RecAttr.parquet
-|   |   +-- df_RecIndex.parquet
-|   +-- Record-HmPtt.CGM5Min/
-|   |   +-- df_RecAttr.parquet
-|   |   +-- df_RecIndex.parquet
-|   +-- Record-HmPtt.Diet5Min/
-|   |   +-- df_RecAttr.parquet
-|   |   +-- df_RecIndex.parquet
-|   +-- Record-HmPtt.Exercise5Min/
-|   |   +-- df_RecAttr.parquet
-|   |   +-- df_RecIndex.parquet
-|   +-- Record-HmPtt.Med5Min/
-|   |   +-- df_RecAttr.parquet
-|   |   +-- df_RecIndex.parquet
-|   +-- Extra-{name}/                 # Optional extra DataFrames
-|   +-- manifest.json
-+-- ...
+# Discover what RecordSets exist
+ls _WorkSpace/2-RecStore/
 ```
 
-**Directory naming:** `<CohortName>_v<N>RecSet/`
+Directory naming convention: `<CohortName>_v<N>RecSet/`
 
-**Important:** It is NOT `HmPtt/<PatientID>/CGM5Min/`. It is flat.
+Each RecordSet has this flat internal structure
+(example below is illustrative -- actual Human/Record names depend on
+what HumanFns and RecordFns were used when the RecordSet was built):
+
+```
+_WorkSpace/2-RecStore/<CohortName>_v<N>RecSet/
++-- Human-<HumanFnName>/              # FLAT: Human-{HumanName}
+|   +-- df_Human.parquet
+|   +-- schema.json
++-- Record-<HumanFnName>.<RecordFnName>/  # FLAT: Record-{HumanName}.{RecordName}
+|   +-- df_RecAttr.parquet
+|   +-- df_RecIndex.parquet
++-- Record-<HumanFnName>.<OtherRecordFn>/
+|   +-- df_RecAttr.parquet
+|   +-- df_RecIndex.parquet
++-- Extra-{name}/                     # Optional extra DataFrames
++-- manifest.json
+```
+
+**Important:** It is NOT `<HumanFnName>/<EntityID>/<RecordFnName>/`. It is flat.
 
 ---
 
@@ -56,15 +57,19 @@ source env.sh
 python -c "
 from haipipe.record_base import RecordSet
 
-# Load existing RecordSet -- path-based API
+# Discover available RecordSets first
+import os
+print(os.listdir('_WorkSpace/2-RecStore/'))
+
+# Load by path (example illustrative -- replace with actual RecordSet name)
 record_set = RecordSet.load_from_disk(
-    path='_WorkSpace/2-RecStore/OhioT1DM_v0RecSet',
+    path='_WorkSpace/2-RecStore/<CohortName>_v<N>RecSet',
     SPACE=SPACE
 )
 
 # Alternative: load_asset (handles both local and remote paths)
 record_set = RecordSet.load_asset(
-    path='_WorkSpace/2-RecStore/OhioT1DM_v0RecSet',
+    path='<CohortName>_v<N>RecSet',
     SPACE=SPACE
 )
 
@@ -85,24 +90,21 @@ The core data structure is `record_set.Name_to_HRF`, a flat dictionary
 with string keys (Humans) and tuple keys (Records):
 
 ```python
-# Access Human (string key)
-human = record_set.Name_to_HRF['HmPtt']
-# Human has: human.df_Human (DataFrame with patient demographics)
-
-# Access Record (tuple key)
-cgm_record = record_set.Name_to_HRF[('HmPtt', 'CGM5Min')]
-# Record has: cgm_record.df_RecAttr (DataFrame with record attributes)
-#             cgm_record.df_RecIndex (DataFrame with record index)
-
-diet_record = record_set.Name_to_HRF[('HmPtt', 'Diet5Min')]
-med_record  = record_set.Name_to_HRF[('HmPtt', 'Med5Min')]
-
-# List all keys
+# List all available keys first -- names depend on what was registered
 for key in record_set.Name_to_HRF:
     if isinstance(key, str):
         print(f'Human: {key}')
     elif isinstance(key, tuple):
         print(f'Record: {key[0]}.{key[1]}')
+
+# Access Human by string key (example illustrative)
+human = record_set.Name_to_HRF['<HumanFnName>']
+# Human has: human.df_Human (DataFrame with entity demographics)
+
+# Access Record by tuple key (example illustrative)
+my_record = record_set.Name_to_HRF[('<HumanFnName>', '<RecordFnName>')]
+# Record has: my_record.df_RecAttr (DataFrame with record attributes)
+#             my_record.df_RecIndex (DataFrame with record index)
 ```
 
 **WRONG (these do NOT exist):**
@@ -116,15 +118,14 @@ Schema Inspection
 =================
 
 ```python
-# Get Human columns
-human_cols = record_set.get_human_columns('HmPtt')
+# Replace argument values with actual HumanFn/RecordFn names from ls
+human_cols = record_set.get_human_columns('<HumanFnName>')
 print('Human columns:', human_cols)
 
-# Get Record columns
-cgm_cols = record_set.get_record_columns('HmPtt', 'CGM5Min')
-print('CGM columns:', cgm_cols)
+record_cols = record_set.get_record_columns('<HumanFnName>', '<RecordFnName>')
+print('Record columns:', record_cols)
 
-# Full schema summary
+# Full schema summary (no arguments needed)
 print('Human_to_columns:', record_set.Human_to_columns)
 print('Record_to_columns:', record_set.Record_to_columns)
 ```
@@ -153,14 +154,15 @@ Quick Inspection Commands (Bash)
 ls _WorkSpace/2-RecStore/
 
 # List contents of a RecordSet (FLAT structure)
-ls _WorkSpace/2-RecStore/OhioT1DM_v0RecSet/
-# Should show: Human-HmPtt/  Record-HmPtt.Ptt/  Record-HmPtt.CGM5Min/  ...
+# Replace <RecordSetName> with actual name from ls above
+ls _WorkSpace/2-RecStore/<RecordSetName>/
+# Shows: Human-<HumanFnName>/  Record-<HumanFnName>.<RecordFnName>/  ...
 
 # Check file sizes
-du -sh _WorkSpace/2-RecStore/OhioT1DM_v0RecSet/
+du -sh _WorkSpace/2-RecStore/<RecordSetName>/
 
-# Read manifest
-cat _WorkSpace/2-RecStore/OhioT1DM_v0RecSet/manifest.json
+# Read manifest (shows lineage, build config, timestamps)
+cat _WorkSpace/2-RecStore/<RecordSetName>/manifest.json
 ```
 
 ---

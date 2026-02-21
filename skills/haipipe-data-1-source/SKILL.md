@@ -6,6 +6,11 @@ Layer 1 of the 6-layer data pipeline: Source Processing.
 Converts raw data files (CSV, XML, Parquet, JSON) into a standardized
 SourceSet -- a dictionary of DataFrames keyed by table name.
 
+**Scope of this skill:** Framework patterns only. It does not catalog
+project-specific state (which SourceFns are registered, column names, cohort
+names). That state is always discovered at runtime from the filesystem.
+This skill applies equally to any domain: CGM, EHR, genomics, wearables, etc.
+
 Four subcommands:
 
   /haipipe-data-1-source load           Inspect existing SourceSet
@@ -14,7 +19,7 @@ Four subcommands:
   /haipipe-data-1-source design-kitchen Upgrade Source_Pipeline infra
 
 On invocation, read this file for shared rules, then read the matching
-subcommand file (load.md, cook.md, design-chef.md, design-kitchen.md).
+subcommand file (1-load.md, 2-cook.md, 3-design-chef.md, 4-design-kitchen.md).
 
 ---
 
@@ -30,7 +35,7 @@ Layer 4: AIData           ML-ready datasets (train/val/test splits)
     |
 Layer 3: Case             Event-triggered feature extraction
     |
-Layer 2: Record           5-min aligned patient time series
+Layer 2: Record           Temporally-aligned patient records
     |
 Layer 1: Source  <---     Raw files -> standardized tables
 ```
@@ -64,17 +69,16 @@ A SourceSet is an Asset that holds **ProcName_to_ProcDf** -- a dictionary
 mapping table names to pandas DataFrames.
 
 ```python
+# Example (illustrative -- actual ProcNames depend on domain and dataset):
 source_set.ProcName_to_ProcDf = {
-    'CGM':        DataFrame(columns=['PatientID', 'ObservationDateTime', 'BGValue', ...]),
-    'Medication': DataFrame(columns=['PatientID', 'AdministrationDate', 'Dose', ...]),
-    'Diet':       DataFrame(columns=['PatientID', 'ObservationDateTime', 'Carbs', ...]),
-    'Exercise':   DataFrame(columns=['PatientID', 'ObservationDateTime', ...]),
-    'Ptt':        DataFrame(columns=['PatientID', 'Gender', 'DateOfBirth', ...]),
+    '<TableName1>': DataFrame(columns=['<EntityID>', '<DatetimeCol>', '<ValueCol>', ...]),
+    '<TableName2>': DataFrame(columns=['<EntityID>', '<DateCol>', '<DoseCol>', ...]),
+    ...
 }
 ```
 
 Each key is a **ProcName** (processed table name). Which ProcNames exist
-depends on the domain and dataset:
+depends on the domain and dataset. Typical patterns:
 
 ```
 Domain            Typical ProcNames
@@ -87,6 +91,12 @@ Wearables         HeartRate, Steps, Sleep, SpO2
 
 The SourceFn defines the full list in its **ProcName_List** attribute.
 
+Always discover what ProcNames are available:
+```bash
+ls code/haifn/fn_source/                       # registered SourceFns
+head -20 code/haifn/fn_source/<SourceFnName>.py  # see its ProcName_List
+```
+
 ---
 
 Schema Consistency
@@ -96,7 +106,10 @@ Within a domain, all SourceFns MUST produce identical column sets for shared
 table types. This is what makes Layer 2 (Record) work -- it expects the same
 columns regardless of which dataset produced them.
 
-**Example: Diabetes domain standard schemas**
+**Example: CGM/Diabetes domain standard schemas (illustrative)**
+
+These are real schemas used in the CGM domain. Other domains will define their
+own schemas following the same Core + Extended Fields Pattern.
 
 Medication (11 columns):
 
@@ -130,7 +143,7 @@ Diet (15 columns):
  'nutrition', 'external_metadata']
 ```
 
-**Core + Extended Fields Pattern:**
+**Core + Extended Fields Pattern (domain-general):**
 
 - Core fields: Kept as columns AND in JSON (e.g., Dose, Carbs, ExerciseDuration)
 - Extended fields: Only in JSON (e.g., MedicationType, bwz_carb_input, HeartRate)
@@ -146,15 +159,15 @@ Concrete Code From the Repo
 ```python
 from haipipe.source_base import SourceSet
 
-# Load by full path
+# Load by full path (replace with actual path from ls _WorkSpace/1-SourceStore/)
 source_set = SourceSet.load_from_disk(
-    path='/full/path/to/_WorkSpace/1-SourceStore/OhioT1DM/@OhioT1DMxmlv250302',
+    path='_WorkSpace/1-SourceStore/<CohortName>/@<SourceFnName>',
     SPACE=SPACE
 )
 
 # Equivalent approach
 source_set = SourceSet.load_asset(
-    path='/full/path/to/_WorkSpace/1-SourceStore/OhioT1DM/@OhioT1DMxmlv250302',
+    path='_WorkSpace/1-SourceStore/<CohortName>/@<SourceFnName>',
     SPACE=SPACE
 )
 
@@ -170,11 +183,11 @@ from haipipe.source_base import Source_Pipeline
 
 pipeline = Source_Pipeline(config, SPACE)
 source_set = pipeline.run(
-    raw_data_name='OhioT1DM',         # Folder name in SourceStore
-    raw_data_path=None,                 # None=check store, or S3 URL, or abs path
-    payload_input=None,                 # Dict for inference mode (no caching)
-    use_cache=True,                     # Load cached if available
-    save_cache=True                     # Save results to cache
+    raw_data_name='<CohortName>',              # Folder name in SourceStore
+    raw_data_path=None,                         # None=check store, or S3 URL, or abs path
+    payload_input=None,                         # Dict for inference mode (no caching)
+    use_cache=True,                             # Load cached if available
+    save_cache=True                             # Save results to cache
 )
 ```
 
@@ -182,18 +195,18 @@ source_set = pipeline.run(
 
 ```python
 source_set.save_to_disk()                       # Auto path from SPACE
-source_set.save_to_disk(path='/custom/path')     # Custom path
+source_set.save_to_disk(path='/custom/path')    # Custom path
 ```
 
-**SourceFn module structure** (code/haifn/fn_source/*.py):
+**SourceFn module structure** (code/haifn/fn_source/<SourceFnName>.py):
 
 ```python
 # Module-level attributes (required):
 SourceFile_SuffixList = ['.xml']  # or ['.csv'], ['.parquet'], etc.
-ProcName_List = ['CGM', 'Medication', 'Diet', 'Exercise', 'Ptt']
+ProcName_List = ['<Table1>', '<Table2>', '<Table3>']   # all output tables
 ProcName_to_columns = {
-    'CGM': ['PatientID', 'ObservationDateTime', 'BGValue', ...],
-    'Medication': ['PatientID', 'AdministrationDate', ...],
+    '<Table1>': ['<EntityID>', '<DatetimeCol>', '<ValueCol>', ...],
+    '<Table2>': ['<EntityID>', '<DateCol>', ...],
 }
 
 # Main function (required):
@@ -216,36 +229,39 @@ _WorkSpace/1-SourceStore/{raw_data_name}/@{SourceFnName}/
     manifest.json
 ```
 
-Example:
+Example (illustrative -- actual ProcNames depend on domain and SourceFn):
 
 ```
-_WorkSpace/1-SourceStore/OhioT1DM/@OhioT1DMxmlv250302/
-    CGM.parquet
-    Medication.parquet
-    Diet.parquet
-    Exercise.parquet
-    Ptt.parquet
-    Height.parquet
-    Weight.parquet
+_WorkSpace/1-SourceStore/<CohortName>/@<SourceFnName>/
+    <Table1>.parquet
+    <Table2>.parquet
+    <Table3>.parquet
     manifest.json
+```
+
+To see what exists for a real SourceSet:
+```bash
+ls _WorkSpace/1-SourceStore/          # available cohorts
+ls _WorkSpace/1-SourceStore/<CohortName>/@<SourceFnName>/  # its tables
 ```
 
 ---
 
-Currently Registered SourceFns
-==============================
+Discovering Available Fns
+==========================
 
-```
-SourceFn Name          Cohort        Input    Builder File
----------------------  ------------  -------  -----------------------------------------------
-WellDocDataV251226     WellDoc       CSV/Pqt  c1_build_source_welldocdatav251226.py
-OhioT1DMxmlv250302     OhioT1DM      XML      c2_build_source_Ohio251226.py
-CGMacrosV251227        CGMacros      CSV      c3_build_source_CGMacrosV251227.py
-dubossonV251227        dubosson      CSV      c4_build_source_dubossonV251227.py
-AIREADIv2V251226       aireadi       Parquet  c5_build_source_aireadi251226.py
-```
+Do not rely on a hardcoded list -- always discover at runtime:
 
-All builders live in: code-dev/1-PIPELINE/1-Source-WorkSpace/
+```bash
+# Registered SourceFns
+ls code/haifn/fn_source/
+
+# Corresponding builder scripts
+ls code-dev/1-PIPELINE/1-Source-WorkSpace/
+
+# Inspect a SourceFn's ProcName_List
+head -20 code/haifn/fn_source/<SourceFnName>.py
+```
 
 ---
 
@@ -300,20 +316,11 @@ Pipeline framework:   code/haipipe/source_base/source_pipeline.py
                       code/haipipe/source_base/source_utils.py
 Fn loader:            code/haipipe/source_base/builder/sourcefn.py
 
-Generated SourceFns:  code/haifn/fn_source/WellDocDataV251226.py
-                      code/haifn/fn_source/OhioT1DMxmlv250302.py
-                      code/haifn/fn_source/CGMacrosV251227.py
-                      code/haifn/fn_source/dubossonV251227.py
-                      code/haifn/fn_source/AIREADIv2V251226.py
+Generated SourceFns:  code/haifn/fn_source/          <- discover with ls
+Builders (edit here): code-dev/1-PIPELINE/1-Source-WorkSpace/  <- discover with ls
 
-Builders (edit here):  code-dev/1-PIPELINE/1-Source-WorkSpace/c1_build_source_welldocdatav251226.py
-                       code-dev/1-PIPELINE/1-Source-WorkSpace/c2_build_source_Ohio251226.py
-                       code-dev/1-PIPELINE/1-Source-WorkSpace/c3_build_source_CGMacrosV251227.py
-                       code-dev/1-PIPELINE/1-Source-WorkSpace/c4_build_source_dubossonV251227.py
-                       code-dev/1-PIPELINE/1-Source-WorkSpace/c5_build_source_aireadi251226.py
-
-Test configs:          tutorials/config/test-haistep-ohio/1_test_source.yaml
-Store path:            _WorkSpace/1-SourceStore/
+Test configs:         config/                         <- discover with ls config/
+Store path:           _WorkSpace/1-SourceStore/
 ```
 
 ---
@@ -325,10 +332,10 @@ File Layout
 haipipe-data-1-source/
     SKILL.md              This file (router + shared rules)
     README.md             Quick reference
-    load.md               /haipipe-data-1-source load
-    cook.md               /haipipe-data-1-source cook
-    design-chef.md        /haipipe-data-1-source design-chef
-    design-kitchen.md     /haipipe-data-1-source design-kitchen
+    1-load.md             /haipipe-data-1-source load
+    2-cook.md             /haipipe-data-1-source cook
+    3-design-chef.md      /haipipe-data-1-source design-chef
+    4-design-kitchen.md   /haipipe-data-1-source design-kitchen
     templates/
         config.yaml       Config template for cook subcommand
 ```

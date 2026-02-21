@@ -4,13 +4,24 @@ Subcommand: design-chef
 Purpose: Create a new TfmFn or SplitFn via the builder pattern.
 Edit builders in code-dev/ -> run -> generates code/haifn/fn_aidata/.
 
+This skill documents FRAMEWORK PATTERNS only -- not project-specific state.
+It applies to any domain: tabular features, time series tokens, text, sparse tensors.
+
 ---
 
 Workflow
 ========
 
+0. **Inspect existing builders and registered Fns:**
+   ```bash
+   ls code-dev/1-PIPELINE/4-AIData-WorkSpace/c*.py   # TfmFn builders
+   ls code-dev/1-PIPELINE/4-AIData-WorkSpace/s*.py   # SplitFn builders
+   ls code/haifn/fn_aidata/entryinput/               # registered Input TfmFns
+   ls code/haifn/fn_aidata/entryoutput/              # registered Output TfmFns
+   ls code/haifn/fn_aidata/split/                    # registered SplitFns
+   ```
 1. **Present** plan to user -> get approval
-2. **Copy** an existing builder as starting point
+2. **Copy** an existing builder as starting point (pick one closest to your use case)
 3. **Edit** [CUSTOMIZE] sections only (keep [BOILERPLATE] as-is)
 4. **Run** builder:
    ```bash
@@ -29,14 +40,16 @@ Builder Location
 
 ```
 code-dev/1-PIPELINE/4-AIData-WorkSpace/
-+-- c1_build_transforms_cgmntp.py          (CGM NTP input transforms)
-+-- c7_build_transforms_tetoken.py         (TEToken input transforms)
-+-- s1_build_splitfn_splitbytimebin.py     (Time-bin split function)
-+-- other_proj/
-|   +-- c1_build_transforms_basicml.py     (Basic ML input)
-|   +-- c2_build_transforms_sparse.py      (Sparse categorical input)
-|   +-- s1_build_splitfn_stratum.py        (Stratified split)
-+-- Old/                                    (Legacy builders)
++-- c<N>_build_transforms_<type>.py   (Input/Output TfmFn builders -- discover with ls)
++-- s<N>_build_splitfn_<method>.py    (SplitFn builders -- discover with ls)
++-- old/                               (Legacy builders)
+```
+
+Discover existing builders at runtime:
+
+```bash
+ls code-dev/1-PIPELINE/4-AIData-WorkSpace/c*.py   # TfmFn builders
+ls code-dev/1-PIPELINE/4-AIData-WorkSpace/s*.py   # SplitFn builders
 ```
 
 **Three types of builders:**

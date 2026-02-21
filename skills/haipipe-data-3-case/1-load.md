@@ -5,6 +5,7 @@ Purpose: Inspect existing CaseSet assets (read-only).
 
 Use this when you need to understand extracted features, verify trigger
 coverage, check case counts, or debug feature quality issues.
+This subcommand applies to any domain -- any CaseSet, any trigger type or feature set.
 
 ---
 
@@ -16,18 +17,22 @@ CaseSets live under `_WorkSpace/3-CaseStore/`. CaseFn parquet files are
 
 ```
 _WorkSpace/3-CaseStore/
-+-- OhioT1DM_v0RecSet/
-    +-- @v0CaseSet-CGM5MinLTS-Ohio/
-        +-- df_case.parquet              Main case table (PID, ObsDT, trigger cols)
++-- <RecordSetName>/                     e.g., <CohortName>_v0RecSet
+    +-- @v<N>CaseSet-<TriggerFolder>/
+        +-- df_case.parquet              Main case table (EntityID, ObsDT, trigger cols)
         +-- df_lts.parquet               LTS segments (optional, for LTS triggers)
-        +-- df_Human_Info.parquet        Patient metadata (optional)
-        +-- @CGMValueBf24h.parquet       CaseFn features (at ROOT, NOT in subdirectory)
-        +-- @CGMValueAf24h.parquet       Another CaseFn (at ROOT)
-        +-- @DEMEventBf24h.parquet       Another CaseFn (at ROOT)
-        +-- @DEMEventAf24h.parquet       Another CaseFn (at ROOT)
-        +-- @PDemoBase.parquet           Another CaseFn (at ROOT)
+        +-- df_Human_Info.parquet        Entity metadata (optional)
+        +-- @<CaseFnName1>.parquet       CaseFn features (at ROOT, NOT in subdirectory)
+        +-- @<CaseFnName2>.parquet       Another CaseFn (at ROOT)
         +-- cf_to_cfvocab.json           Vocabulary per CaseFn
         +-- manifest.json
+```
+
+To see what actually exists:
+```bash
+ls _WorkSpace/3-CaseStore/                                   # RecordSets with cases
+ls _WorkSpace/3-CaseStore/<RecordSetName>/                   # CaseSet versions
+ls _WorkSpace/3-CaseStore/<RecordSetName>/@v<N>CaseSet-*/   # case files
 ```
 
 **CRITICAL:**
@@ -46,22 +51,29 @@ from haipipe.case_base import CaseSet
 
 # Load existing CaseSet -- full path + SPACE
 case_set = CaseSet.load_from_disk(
-    path='/full/path/to/3-CaseStore/OhioT1DM_v0RecSet/@v0CaseSet-CGM5MinLTS-Ohio',
+    path='_WorkSpace/3-CaseStore/<RecordSetName>/@v<N>CaseSet-<TriggerFolder>',
     SPACE=SPACE
 )
 
 # Load with selective CaseFn loading (faster, less memory)
 case_set = CaseSet.load_from_disk(
-    path='/full/path/to/3-CaseStore/OhioT1DM_v0RecSet/@v0CaseSet-CGM5MinLTS-Ohio',
+    path='_WorkSpace/3-CaseStore/<RecordSetName>/@v<N>CaseSet-<TriggerFolder>',
     SPACE=SPACE,
-    CaseFn_list=['CGMValueBf24h']         # Only load this CaseFn
+    CaseFn_list=['<CaseFnName1>']         # Only load this CaseFn
 )
 
 # Alternative: load_asset also works
 case_set = CaseSet.load_asset(
-    path='/full/path/to/3-CaseStore/OhioT1DM_v0RecSet/@v0CaseSet-CGM5MinLTS-Ohio',
+    path='_WorkSpace/3-CaseStore/<RecordSetName>/@v<N>CaseSet-<TriggerFolder>',
     SPACE=SPACE
 )
+```
+
+**WRONG -- this API does NOT exist:**
+
+```python
+# WRONG: load_from_disk does NOT accept set_name= or store_key=
+case_set = CaseSet.load_from_disk(set_name='...', store_key='...')
 ```
 
 ---
@@ -73,7 +85,7 @@ Inspect CaseSet Contents
 # Base case data (df_case.parquet)
 print('Number of cases:', len(case_set.df_case))
 print('Case columns:', list(case_set.df_case.columns))
-print('Case ID columns: PID, lts_id, ObsDT')
+print('Case ID columns:', [c for c in case_set.df_case.columns if 'ID' in c or 'DT' in c])
 
 # Per-CaseFn feature parquets (@CaseFnName.parquet)
 for cf_name, cf_df in case_set.CaseFn_to_df.items():
@@ -99,16 +111,16 @@ Quick Inspection Commands
 ls _WorkSpace/3-CaseStore/
 
 # List trigger versions for a RecordSet
-ls _WorkSpace/3-CaseStore/OhioT1DM_v0RecSet/
+ls _WorkSpace/3-CaseStore/<RecordSetName>/
 
 # List all files in a CaseSet (note: @-prefixed CaseFn files at root)
-ls _WorkSpace/3-CaseStore/OhioT1DM_v0RecSet/@v0CaseSet-CGM5MinLTS-Ohio/
+ls _WorkSpace/3-CaseStore/<RecordSetName>/@v<N>CaseSet-<TriggerFolder>/
 
 # Check file sizes
-du -sh _WorkSpace/3-CaseStore/OhioT1DM_v0RecSet/@v0CaseSet-CGM5MinLTS-Ohio/*
+du -sh _WorkSpace/3-CaseStore/<RecordSetName>/@v<N>CaseSet-<TriggerFolder>/*
 
 # Read manifest
-cat _WorkSpace/3-CaseStore/OhioT1DM_v0RecSet/@v0CaseSet-CGM5MinLTS-Ohio/manifest.json
+cat _WorkSpace/3-CaseStore/<RecordSetName>/@v<N>CaseSet-<TriggerFolder>/manifest.json
 ```
 
 ---
@@ -126,6 +138,18 @@ Inspection Checklist
 8. **Missing data**: Check for NaN/null ratios in feature columns
 9. **Manifest**: Check manifest.json for lineage back to RecordSet
 10. **Vocabulary**: Check cf_to_cfvocab.json for token counts per CaseFn
+
+---
+
+MUST DO
+=======
+
+1. **Activate .venv and source env.sh** before any Python inspection
+2. **Check existence first** -- use `ls` or try/except before loading
+3. **Use the correct API** -- `load_from_disk(path=..., SPACE=...)` or
+   `load_asset(path=..., SPACE=...)`
+4. **Look for CaseFn files at ROOT** -- `@CaseFnName.parquet`, not in a subdirectory
+5. **Read df_case.parquet** as the primary case table -- not case_data.parquet
 
 ---
 

@@ -5,28 +5,31 @@ Purpose: Inspect existing SourceSet assets (read-only).
 
 Use this when you need to understand what data exists, verify schemas,
 check row counts, or debug data quality issues.
+This subcommand applies to any domain -- any SourceSet, any cohort format.
 
 ---
 
-Where SourceSets Live
-=====================
+What To Read
+============
 
 ```
 _WorkSpace/1-SourceStore/
-    OhioT1DM/
-        @OhioT1DMxmlv250302/
-            CGM.parquet
-            Medication.parquet
-            Diet.parquet
-            Exercise.parquet
-            Ptt.parquet
-            Height.parquet
-            Weight.parquet
+    <CohortName1>/
+        @<SourceFnName>/
+            <ProcName1>.parquet
+            <ProcName2>.parquet
+            ...
             manifest.json
-    WellDoc2022CGM/
-        @WellDocDataV251226/
+    <CohortName2>/
+        @<SourceFnName>/
             ...
     ...
+```
+
+To see what actually exists:
+```bash
+ls _WorkSpace/1-SourceStore/                         # available cohorts
+ls _WorkSpace/1-SourceStore/<CohortName>/@<SourceFnName>/  # its tables
 ```
 
 **Directory naming convention:** `{raw_data_name}/@{SourceFnName}/`
@@ -45,13 +48,13 @@ from haipipe.source_base import SourceSet
 
 # Approach 1: load_from_disk
 source_set = SourceSet.load_from_disk(
-    path='/full/path/to/_WorkSpace/1-SourceStore/OhioT1DM/@OhioT1DMxmlv250302',
+    path='_WorkSpace/1-SourceStore/<CohortName>/@<SourceFnName>',
     SPACE=SPACE
 )
 
 # Approach 2: load_asset (equivalent -- also handles remote paths)
 source_set = SourceSet.load_asset(
-    path='/full/path/to/_WorkSpace/1-SourceStore/OhioT1DM/@OhioT1DMxmlv250302',
+    path='_WorkSpace/1-SourceStore/<CohortName>/@<SourceFnName>',
     SPACE=SPACE
 )
 ```
@@ -59,22 +62,41 @@ source_set = SourceSet.load_asset(
 **Both methods require a path argument** -- there is no `set_name` or
 `store_key` parameter.
 
+**WRONG -- this API does NOT exist:**
+
+```python
+# WRONG: load_from_disk does NOT accept set_name= or store_key=
+source_set = SourceSet.load_from_disk(set_name='...', store_key='...')
+```
+
 ---
 
-What To Inspect
-===============
+ProcName_to_ProcDf Access Pattern
+===================================
 
 Once loaded, the main data lives in `source_set.ProcName_to_ProcDf`:
 
 ```python
-# List available tables
+# Check which tables are available
 print('Tables:', list(source_set.ProcName_to_ProcDf.keys()))
 
+# Access a specific table
+df_cgm = source_set.ProcName_to_ProcDf['<ProcName>']
+print('Columns:', list(df_cgm.columns))
+print('Rows:', len(df_cgm))
+```
+
+---
+
+Inspect SourceSet Contents
+===========================
+
+```python
 # Inspect each table
 for name, df in source_set.ProcName_to_ProcDf.items():
     print(f'{name}: {df.shape[0]} rows, {df.shape[1]} cols')
     print(f'  Columns: {list(df.columns)}')
-    print(f'  PatientIDs: {df["PatientID"].nunique()} unique')
+    print(f'  EntityIDs: {df["<EntityIDCol>"].nunique()} unique')
     print()
 
 # Pretty-print summary
@@ -118,13 +140,13 @@ Quick Inspection Commands (Shell)
 ls _WorkSpace/1-SourceStore/
 
 # List SourceFn versions for a cohort
-ls _WorkSpace/1-SourceStore/OhioT1DM/
+ls _WorkSpace/1-SourceStore/<CohortName>/
 
 # Check file sizes
-du -sh _WorkSpace/1-SourceStore/OhioT1DM/@OhioT1DMxmlv250302/*
+du -sh _WorkSpace/1-SourceStore/<CohortName>/@<SourceFnName>/*
 
 # Read manifest
-cat _WorkSpace/1-SourceStore/OhioT1DM/@OhioT1DMxmlv250302/manifest.json
+cat _WorkSpace/1-SourceStore/<CohortName>/@<SourceFnName>/manifest.json
 ```
 
 ---

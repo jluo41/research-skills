@@ -4,17 +4,23 @@ Subcommand: design-chef
 Purpose: Create a new SourceFn via the builder pattern.
 Edit builders in code-dev/ -> run -> generates code/haifn/fn_source/.
 
-This is a domain-agnostic pattern. It works for CGM datasets, EHR systems,
-genomics pipelines, wearable data, or any tabular source format.
+This skill documents FRAMEWORK PATTERNS only -- not project-specific state.
+It applies to any domain: CGM, EHR, genomics, wearable data, or any tabular source.
 
 ---
 
 Workflow
 ========
 
+0. **Inspect existing builders** to understand what format they handle:
+   ```bash
+   ls code-dev/1-PIPELINE/1-Source-WorkSpace/    # existing builders
+   ls code/haifn/fn_source/                       # already generated SourceFns
+   head -30 code-dev/1-PIPELINE/1-Source-WorkSpace/<closest_builder>.py
+   ```
 1. **Present plan** to user -> get approval
 2. **Activate environment**: `source .venv/bin/activate && source env.sh`
-3. **Copy an existing builder** as starting point
+3. **Copy an existing builder** as starting point (pick the one closest to your format)
 4. **Edit [CUSTOMIZE] sections** only (keep [BOILERPLATE] as-is)
 5. **Run builder** to generate production code:
    ```bash
@@ -31,20 +37,23 @@ Builder Location
 
 ```
 code-dev/1-PIPELINE/1-Source-WorkSpace/
-    c1_build_source_welldocdatav251226.py   (WellDoc -- complex, multi-table)
-    c2_build_source_Ohio251226.py           (OhioT1DM -- XML parsing)
-    c3_build_source_CGMacrosV251227.py      (CGMacros -- CSV)
-    c4_build_source_dubossonV251227.py      (Dubosson -- CSV)
-    c5_build_source_aireadi251226.py        (AIREADI -- Parquet)
-    old/                                     (Legacy builders)
+    c<N>_build_source_<SourceFnName>.py    (one per SourceFn -- discover with ls)
+    old/                                    (Legacy builders)
+```
+
+Discover existing builders:
+```bash
+ls code-dev/1-PIPELINE/1-Source-WorkSpace/
 ```
 
 **Best starting point** -- pick the builder closest to your data format:
 
-- CSV data? Start from c3 (CGMacros) or c4 (Dubosson)
-- XML data? Start from c2 (OhioT1DM)
-- Parquet data? Start from c5 (AIREADI)
-- Multi-format or complex? Start from c1 (WellDoc)
+```bash
+ls code-dev/1-PIPELINE/1-Source-WorkSpace/    # see all available builders
+head -20 code-dev/1-PIPELINE/1-Source-WorkSpace/<builder>.py  # check its format
+```
+
+Match your format to the builder that handles the same file type (CSV, XML, Parquet, etc.).
 
 ---
 

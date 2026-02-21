@@ -26,17 +26,24 @@ Common Commands
 # 1. Activate environment
 source .venv/bin/activate && source env.sh
 
-# 2. Run Record_Pipeline via CLI
-haistep-record --config config/test-haistep-ohio/2_test_record.yaml
+# 2. Discover available configs, RecordSets, and registered Fns
+ls config/                                   # find existing configs
+ls _WorkSpace/2-RecStore/                    # find existing RecordSets
+ls code/haifn/fn_record/record/              # find registered RecordFns
 
-# 3. Load and inspect (Python)
+# 3. Run Record_Pipeline via CLI (replace with your config path)
+haistep-record --config <your_config>.yaml
+
+# 4. Load and inspect (Python) -- replace with actual RecordSet name
 from haipipe.record_base import RecordSet
-record_set = RecordSet.load_from_disk(path='/full/path/to/record_set', SPACE=SPACE)
+record_set = RecordSet.load_from_disk(path='_WorkSpace/2-RecStore/<RecordSetName>', SPACE=SPACE)
 record_set.info()
 
-# 4. Access data
-human = record_set.Name_to_HRF['HmPtt']                    # string key
-cgm   = record_set.Name_to_HRF[('HmPtt', 'CGM5Min')]       # tuple key
+# 5. Access data (example illustrative -- list keys first to find actual names)
+for key in record_set.Name_to_HRF:
+    print(key)                               # string = Human, tuple = Record
+human  = record_set.Name_to_HRF['<HumanFnName>']            # string key
+record = record_set.Name_to_HRF[('<HumanFnName>', '<RecordFnName>')]  # tuple key
 ```
 
 ---
@@ -62,10 +69,10 @@ Files
 ```
 SKILL.md           Full rules, Name_to_HRF pattern, MUST DO / MUST NOT
 README.md          This file (quick reference)
-load.md            Rules for inspecting RecordSets
-cook.md            Rules for running Record_Pipeline
-design-chef.md     Rules for creating new HumanFn/RecordFn builders
-design-kitchen.md  Rules for modifying Record_Pipeline framework
+1-load.md            Rules for inspecting RecordSets
+2-cook.md            Rules for running Record_Pipeline
+3-design-chef.md     Rules for creating new HumanFn/RecordFn builders
+4-design-kitchen.md  Rules for modifying Record_Pipeline framework
 templates/
   config.yaml      Annotated config template
 ```

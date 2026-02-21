@@ -7,6 +7,11 @@ Converts a CaseSet into ML-ready datasets (AIDataSet). Handles train/val/test
 splitting, input transforms (tabular, text, tensor, token embeddings), and
 output transforms (labels, forecasts, next-token targets).
 
+**Scope of this skill:** Framework patterns only. It does not catalog
+project-specific state (which TfmFns/SplitFns are registered, CaseFn names,
+aidata names). That state is always discovered at runtime from the filesystem.
+This skill applies equally to any domain: CGM, EHR, wearables, NLP, etc.
+
 Four subcommands:
 
   /haipipe-data-4-aidata load           Inspect existing AIDataSet
@@ -15,7 +20,7 @@ Four subcommands:
   /haipipe-data-4-aidata design-kitchen Upgrade AIData_Pipeline infra
 
 On invocation, read this file for shared rules, then read the matching
-subcommand file (load.md, cook.md, design-chef.md, design-kitchen.md).
+subcommand file (1-load.md, 2-cook.md, 3-design-chef.md, 4-design-kitchen.md).
 
 ---
 
@@ -31,7 +36,7 @@ Layer 4: AIData  <---       CaseSet -> ML-ready datasets (train/val/test)
     |
 Layer 3: Case               RecordSet -> event-triggered feature extraction
     |
-Layer 2: Record             SourceSet -> 5-min aligned patient records
+Layer 2: Record             SourceSet -> temporally-aligned entity records
     |
 Layer 1: Source             Raw files -> standardized tables
 ```
@@ -103,17 +108,17 @@ skip splitting). OutputArgs is optional (omit for inference-only pipelines).
 
 ```yaml
 SplitArgs:
-  SplitMethod: 'SplitByTimeBin'
-  ColumnName: 'split_timebin'
+  SplitMethod: '<SplitFnName>'         # discover: ls code/haifn/fn_aidata/split/
+  ColumnName: '<split_column>'
   Split_to_Selection:
     train:
-      Rules: [["split_ai", "==", "train"]]
+      Rules: [["<split_col>", "==", "train"]]
       Op: "and"
     validation:
-      Rules: [["split_ai", "==", "validation"]]
+      Rules: [["<split_col>", "==", "validation"]]
       Op: "and"
     test-id:
-      Rules: [["split_ai", "==", "test-id"]]
+      Rules: [["<split_col>", "==", "test-id"]]
       Op: "and"
 ```
 
@@ -121,24 +126,24 @@ SplitArgs:
 
 ```yaml
 InputArgs:
-  input_method: "InputTEToken"
+  input_method: "<InputTfmFnName>"     # discover: ls code/haifn/fn_aidata/entryinput/
   input_casefn_list:
-    - 'CGMValueBf24h'
-    - 'CGMValueAf24h'
+    - '<CaseFnName1>'
+    - '<CaseFnName2>'
   input_args:
-    window_build: { ... }     # Stage 1: Build TEWindow
-    tetoken: { ... }          # Stage 2: Convert to model format
+    # Transform-specific args (depend on input_method)
+    ...
 ```
 
 **3. OutputArgs** -- How to extract labels/targets:
 
 ```yaml
 OutputArgs:
-  output_method: "OutputSingleLabel"
+  output_method: "<OutputTfmFnName>"   # discover: ls code/haifn/fn_aidata/entryoutput/
   output_casefn_list: []
   output_args:
-    label_column: "clicked"
-    label_rule: ["clicked", ">", 0]
+    label_column: "<label_col>"
+    label_rule: ["<label_col>", ">", 0]
 ```
 
 ---
@@ -146,21 +151,21 @@ OutputArgs:
 Two-Stage TEToken Example
 =========================
 
-The TEToken transform (most common for time series) uses a two-stage
-pipeline. This is a general temporal encoding -- applicable to any time
-series domain, not just CGM.
+The TEToken transform (one option for time series) uses a two-stage pipeline.
+This is a general temporal encoding -- applicable to any time series domain,
+not just CGM.
 
 ```
 Stage 1: window_build
   CaseFn fields -> TEWindow
-  +-- time_series: concat CGMValueBf24h + CGMValueAf24h -> [576]
-  +-- static_feat: PDemoBase -> key-value pairs
-  +-- event_list: DEMEventBf24h + DEMEventAf24h -> event list
+  +-- time_series: concat <CaseFnName>Bf + <CaseFnName>Af -> [N_timesteps]
+  +-- static_feat: <StaticCaseFn> -> key-value pairs
+  +-- event_list: <EventCaseFn>Bf + <EventCaseFn>Af -> event list
 
 Stage 2: tetoken
   TEWindow -> 4 output types:
-  +-- singlevalue_timestep:      [batch, 576, N_fields]  continuous
-  +-- singletoken_timestep:      [batch, 576, N_tokens]  discrete
+  +-- singlevalue_timestep:      [batch, N_timesteps, N_fields]  continuous
+  +-- singletoken_timestep:      [batch, N_timesteps, N_tokens]  discrete
   +-- multitoken_sparsetimestep: event dicts with positions
   +-- multitoken_global:         static text or token IDs
 ```
@@ -173,7 +178,8 @@ Concrete Code From the Repo
 **Input TfmFn -- build_vocab_fn** (2 parameters):
 
 ```python
-# code/haifn/fn_aidata/entryinput/InputTEToken.py
+# Example (illustrative -- actual module name depends on input_method):
+# code/haifn/fn_aidata/entryinput/<InputTfmFnName>.py
 
 def build_vocab_fn(InputArgs, CF_to_CFVocab):
     """Build vocabulary from config and per-CaseFn vocabularies.
@@ -186,17 +192,14 @@ def build_vocab_fn(InputArgs, CF_to_CFVocab):
         feat_vocab dict (saved as feat_vocab.json)
     """
     input_args = InputArgs.get('input_args', {})
-    window_build = input_args.get('window_build', {})
-    tetoken_config = input_args.get('tetoken', {})
-    tetoken_vocabs = build_vocab(tetoken_config, CF_to_CFVocab=CF_to_CFVocab)
-    feat_vocab = {'window_build': window_build, **tetoken_vocabs}
+    # ... build vocabulary from config and per-CaseFn vocab ...
     return feat_vocab
 ```
 
 **Input TfmFn -- tfm_fn** (4 parameters):
 
 ```python
-# code/haifn/fn_aidata/entryinput/InputTEToken.py
+# code/haifn/fn_aidata/entryinput/<InputTfmFnName>.py
 
 def tfm_fn(case_features, InputArgs, CF_to_CFvocab, feat_vocab=None):
     """Transform one case's features into model-ready input.
@@ -216,10 +219,10 @@ def tfm_fn(case_features, InputArgs, CF_to_CFvocab, feat_vocab=None):
 **Output TfmFn -- tfm_fn** (2 parameters):
 
 ```python
-# code/haifn/fn_aidata/entryoutput/OutputSingleLabel.py
+# code/haifn/fn_aidata/entryoutput/<OutputTfmFnName>.py
 
 def tfm_fn(case, OutputArgs):
-    """Extract single label from case.
+    """Extract label/target from case.
 
     Args:
         case:        Single case dict with all features
@@ -237,7 +240,7 @@ def tfm_fn(case, OutputArgs):
 **SplitFn -- dataset_split_tagging_fn** (adds split_ai column):
 
 ```python
-# code/haifn/fn_aidata/split/SplitByTimeBin.py
+# code/haifn/fn_aidata/split/<SplitFnName>.py
 
 def dataset_split_tagging_fn(df_tag, SplitArgs):
     """Add 'split_ai' column to df_tag.
@@ -250,7 +253,6 @@ def dataset_split_tagging_fn(df_tag, SplitArgs):
         df_tag with 'split_ai' column added.
         Values: 'train', 'validation', 'test-id', 'test-od', or None
     """
-    column_name = SplitArgs.get('ColumnName', 'split_timebin')
     # ... maps source values to target splits ...
     df_tag['split_ai'] = mapped_values
     return df_tag
@@ -267,7 +269,7 @@ pipeline = AIData_Pipeline(config, SPACE, cache_combined_case=True)
 # Path 1: CaseSet(s) or cached dataset -> AIDataSet
 aidata_set = pipeline.run(
     case_set=my_case_set,
-    aidata_name='ohiot1dm-cgm-tedata',
+    aidata_name='<aidata_name>',     # choose a name for the output
     aidata_version='v0'
 )
 
@@ -292,60 +294,35 @@ aidata_set = AIDataSet.load_asset(path='/full/path/to/aidata', SPACE=SPACE)
 
 ---
 
-Registered Fns
-==============
+Fn Types Overview
+=================
 
-**Input Transforms (entryinput/):**
+Three Fn types registered under code/haifn/fn_aidata/:
 
+**Input Transforms (entryinput/):** Convert case features into model inputs.
+Each has `build_vocab_fn(InputArgs, CF_to_CFVocab)` and
+`tfm_fn(case_features, InputArgs, CF_to_CFvocab, feat_vocab)`.
+
+**Output Transforms (entryoutput/):** Extract labels/targets from cases.
+Each has `tfm_fn(case, OutputArgs)` (2 params, not 4).
+
+**Split Functions (split/):** Tag cases with train/val/test assignments.
+Each has `dataset_split_tagging_fn(df_tag, SplitArgs)`.
+
+Discover registered Fns at runtime:
+
+```bash
+ls code/haifn/fn_aidata/entryinput/    # registered Input TfmFns
+ls code/haifn/fn_aidata/entryoutput/   # registered Output TfmFns
+ls code/haifn/fn_aidata/split/         # registered SplitFns
+ls code-dev/1-PIPELINE/4-AIData-WorkSpace/  # builder scripts
 ```
-TfmFn Name                 Description                     Domain
----------------------------+-------------------------------+-----------------------
-InputTEToken               Token embedding (general)       Any time series
-InputMultiCGMSeqNumeric    Multi-sequence numeric          Numeric sequences
-InputMultiCGMSeqConcat     Multi-sequence concatenated     Numeric sequences
-InputMultiCF               Multi case-feature tabular      Tabular features
-InputCGMEventText          Time series + events as text    Text models
-InputCGMEventJSON          Time series + events as JSON    JSON-based models
-InputCGMWithEventChannels  Time series with event channels Multi-channel sequences
-InputMultiSeqConcat        Multi sequences concatenated    Numeric sequences
-InputTemporalInterleaving  Temporally interleaved          Interleaved sequences
-CatInputMultiCFSparse      Sparse categorical features     Sparse tensors
-```
-
-**Output Transforms (entryoutput/):**
-
-```
-TfmFn Name              Description                     Output Format
-------------------------+-------------------------------+-----------------------
-OutputNextToken         Next-token prediction labels     token ID sequence
-OutputNumericForecast   Numeric forecasting labels       float array
-OutputSingleLabel       Single classification label      int
-```
-
-**Split Functions (split/):**
-
-```
-SplitFn Name          Description                       Config Key
-----------------------+----------------------------------+-----------------------
-SplitByTimeBin        Temporal split by time bins        split_timebin
-RandomByPatient       Random split respecting patients   PatientID
-RandomByStratum       Stratified random split            stratum column
-```
-
----
-
-Generality Note
-===============
 
 These transforms and splits are domain-agnostic:
-
-- Input transforms work for **any feature type**, not just CGM
-- TEToken is a **general temporal encoding**, applicable to any time series
+- Input transforms work for **any feature type**, not just time series
 - Split strategies require **no domain knowledge**
-- Output transforms handle **classification** (SingleLabel), **regression**
-  (NumericForecast), and **generation** (NextToken)
-- Everything is config-driven: change input_casefn_list and input_args
-  for a different domain
+- Output transforms handle **classification**, **regression**, and **generation**
+- Everything is config-driven: change input_casefn_list and input_args for a different domain
 
 ---
 
@@ -398,22 +375,13 @@ Pipeline framework:   code/haipipe/aidata_base/aidata_pipeline.py
 Fn loaders:           code/haipipe/aidata_base/builder/tfmfn.py
                       code/haipipe/aidata_base/builder/splitfn.py
 
-Generated Input Tfms: code/haifn/fn_aidata/entryinput/InputTEToken.py
-                      code/haifn/fn_aidata/entryinput/InputMultiCGMSeqNumeric.py
-                      code/haifn/fn_aidata/entryinput/InputMultiCF.py
-                      ... (10 total)
-Generated Output Tfms: code/haifn/fn_aidata/entryoutput/OutputNextToken.py
-                       code/haifn/fn_aidata/entryoutput/OutputNumericForecast.py
-                       code/haifn/fn_aidata/entryoutput/OutputSingleLabel.py
-Generated SplitFns:   code/haifn/fn_aidata/split/SplitByTimeBin.py
-                      code/haifn/fn_aidata/split/RandomByPatient.py
-                      code/haifn/fn_aidata/split/RandomByStratum.py
+Generated Input Tfms:  code/haifn/fn_aidata/entryinput/   <- discover with ls
+Generated Output Tfms: code/haifn/fn_aidata/entryoutput/  <- discover with ls
+Generated SplitFns:    code/haifn/fn_aidata/split/        <- discover with ls
 
-Builders (edit these): code-dev/1-PIPELINE/4-AIData-WorkSpace/c1_build_transforms_cgmntp.py
-                       code-dev/1-PIPELINE/4-AIData-WorkSpace/c7_build_transforms_tetoken.py
-                       code-dev/1-PIPELINE/4-AIData-WorkSpace/s1_build_splitfn_splitbytimebin.py
+Builders (edit these): code-dev/1-PIPELINE/4-AIData-WorkSpace/  <- discover with ls
 
-Test configs:         tutorials/config/test-haistep-ohio/4_test_aidata-cgm-tedata.yaml
+Test configs:         config/                 <- discover with ls config/
 Store path:           _WorkSpace/4-AIDataStore/
 ```
 
@@ -426,10 +394,10 @@ File Layout
 haipipe-data-4-aidata/
 +-- SKILL.md              This file (router + shared rules)
 +-- README.md             Quick reference
-+-- load.md               /haipipe-data-4-aidata load
-+-- cook.md               /haipipe-data-4-aidata cook
-+-- design-chef.md        /haipipe-data-4-aidata design-chef
-+-- design-kitchen.md     /haipipe-data-4-aidata design-kitchen
++-- 1-load.md             /haipipe-data-4-aidata load
++-- 2-cook.md             /haipipe-data-4-aidata cook
++-- 3-design-chef.md      /haipipe-data-4-aidata design-chef
++-- 4-design-kitchen.md   /haipipe-data-4-aidata design-kitchen
 +-- templates/
     +-- config.yaml       Config template for cook subcommand
 ```

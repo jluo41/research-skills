@@ -4,6 +4,12 @@ Skill: haipipe-nn-0-overview
 Architecture map, decision guide, and model registry for the NN pipeline.
 Read this FIRST before any other haipipe-nn skill.
 
+**Scope of this skill:** Framework patterns only. It does not catalog
+project-specific state (which datasets are available, which experiments have
+been run). Model registry snapshots are labeled as such -- always discover
+current state at runtime. This skill applies equally to any domain or model
+family.
+
 ---
 
 The 4-Layer Architecture
@@ -136,8 +142,15 @@ Step 4: ModelSet / Pipeline (Layer 4)
 Complete Model Registry
 =======================
 
-All registered model types as of the current codebase
-(file: code/hainn/model_registry.py):
+Snapshot (discover current registry at runtime):
+
+```bash
+cat code/hainn/model_registry.py
+ls code/hainn/
+```
+
+Snapshot (as of 2026-02-21 -- always verify with commands above):
+(file: code/hainn/model_registry.py)
 
 ```
 Type String(s)                          Instance Class                  Config Class              Family
@@ -278,6 +291,14 @@ TrainingArgs:
 
 Existing Model Families: Summary
 =================================
+
+Snapshot (discover current families at runtime):
+
+```bash
+ls code/hainn/
+```
+
+Snapshot (as of 2026-02-21 -- verify with ls above):
 
 ```
 ┌──────────────┬───────────────────────────────────────────────────────────┐
@@ -474,7 +495,17 @@ python code/scripts/convert_to_notebooks.py \
     -o <model>/test-modeling-<name>/notebooks/
 ```
 
-**Reference implementation:** `code/hainn/tefm/models/te_clm/test-modeling-te_clm/`
+**Reference implementation** (discover at runtime):
+
+```bash
+ls code/hainn/                                    # available model families
+ls code/hainn/<family>/                           # family contents
+ls code/hainn/<family>/test-modeling-<name>/      # test notebook dir
+ls code/hainn/<family>/test-modeling-<name>/scripts/  # test scripts
+```
+
+# Example (illustrative -- actual paths from ls above):
+# code/hainn/tefm/models/te_clm/test-modeling-te_clm/
 
 ---
 

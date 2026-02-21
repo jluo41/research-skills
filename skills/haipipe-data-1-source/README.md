@@ -36,14 +36,14 @@ Files
 -----
 
 ```
-SKILL.md           Full rules, schemas, MUST DO / MUST NOT
-README.md          This file (quick reference)
-load.md            Rules for inspecting SourceSets
-cook.md            Rules for running Source_Pipeline
-design-chef.md     Rules for creating new SourceFn builders
-design-kitchen.md  Rules for modifying Source_Pipeline framework
+SKILL.md             Full rules, schemas, MUST DO / MUST NOT
+README.md            This file (quick reference)
+1-load.md            Rules for inspecting SourceSets
+2-cook.md            Rules for running Source_Pipeline
+3-design-chef.md     Rules for creating new SourceFn builders
+4-design-kitchen.md  Rules for modifying Source_Pipeline framework
 templates/
-  config.yaml      Annotated config template
+  config.yaml        Annotated config template
 ```
 
 ---

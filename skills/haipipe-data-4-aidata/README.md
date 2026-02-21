@@ -56,14 +56,14 @@ Files
 -----
 
 ```
-SKILL.md           Full rules, config pattern, concrete code, MUST DO / MUST NOT
-README.md          This file (quick reference)
-load.md            Rules for inspecting AIDataSets
-cook.md            Rules for running AIData_Pipeline
-design-chef.md     Rules for creating new TfmFn/SplitFn builders
-design-kitchen.md  Rules for modifying AIData_Pipeline framework
+SKILL.md             Full rules, config pattern, concrete code, MUST DO / MUST NOT
+README.md            This file (quick reference)
+1-load.md            Rules for inspecting AIDataSets
+2-cook.md            Rules for running AIData_Pipeline
+3-design-chef.md     Rules for creating new TfmFn/SplitFn builders
+4-design-kitchen.md  Rules for modifying AIData_Pipeline framework
 templates/
-  config.yaml      Annotated config template
+  config.yaml        Annotated config template
 ```
 
 ---

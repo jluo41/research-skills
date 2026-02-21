@@ -5,6 +5,7 @@ Purpose: Inspect existing AIDataSet assets (read-only).
 
 Use this when you need to understand ML-ready datasets, verify splits,
 check feature dimensions, or debug data quality issues.
+This subcommand applies to any domain -- any AIDataSet, any transform or split method.
 
 ---
 
@@ -15,8 +16,8 @@ AIDataSets live under `_WorkSpace/4-AIDataStore/`:
 
 ```
 _WorkSpace/4-AIDataStore/
-+-- ohiot1dm-cgm-tedata/
-|   +-- v0/
++-- <aidata_name>/
+|   +-- @<aidata_version>/
 |       +-- train/                HuggingFace Dataset (Parquet format)
 |       +-- validation/
 |       +-- test-id/
@@ -25,6 +26,13 @@ _WorkSpace/4-AIDataStore/
 |       +-- feat_vocab.json      Feature vocabulary from build_vocab_fn
 |       +-- manifest.json
 +-- ...
+```
+
+To see what actually exists:
+```bash
+ls _WorkSpace/4-AIDataStore/                               # available AIDataSets
+ls _WorkSpace/4-AIDataStore/<aidata_name>/                 # versions
+ls _WorkSpace/4-AIDataStore/<aidata_name>/@<version>/      # splits and vocab
 ```
 
 **Directory naming:** `<aidata_name>/@<aidata_version>/`
@@ -46,12 +54,12 @@ from haipipe.aidata_base.aidata_set import AIDataSet
 
 # Load existing AIDataSet -- pass full path, not set_name + store_key
 aidata_set = AIDataSet.load_from_disk(
-    path='/full/path/to/_WorkSpace/4-AIDataStore/ohiot1dm-cgm-tedata/@v0',
+    path='_WorkSpace/4-AIDataStore/<aidata_name>/@<aidata_version>',
     SPACE=SPACE
 )
 # or equivalently:
 aidata_set = AIDataSet.load_asset(
-    path='/full/path/to/_WorkSpace/4-AIDataStore/ohiot1dm-cgm-tedata/@v0',
+    path='_WorkSpace/4-AIDataStore/<aidata_name>/@<aidata_version>',
     SPACE=SPACE
 )
 
@@ -148,20 +156,20 @@ Quick Inspection Commands
 ls _WorkSpace/4-AIDataStore/
 
 # List versions for a dataset
-ls _WorkSpace/4-AIDataStore/ohiot1dm-cgm-tedata/
+ls _WorkSpace/4-AIDataStore/<aidata_name>/
 
 # List splits and files
-ls _WorkSpace/4-AIDataStore/ohiot1dm-cgm-tedata/@v0/
+ls _WorkSpace/4-AIDataStore/<aidata_name>/@<aidata_version>/
 
 # Check file sizes
-du -sh _WorkSpace/4-AIDataStore/ohiot1dm-cgm-tedata/@v0/*
+du -sh _WorkSpace/4-AIDataStore/<aidata_name>/@<aidata_version>/*
 
 # Read manifest
-cat _WorkSpace/4-AIDataStore/ohiot1dm-cgm-tedata/@v0/manifest.json
+cat _WorkSpace/4-AIDataStore/<aidata_name>/@<aidata_version>/manifest.json
 
 # Read vocabulary files (NOT in a vocab/ subdirectory)
-cat _WorkSpace/4-AIDataStore/ohiot1dm-cgm-tedata/@v0/cf_to_cfvocab.json
-cat _WorkSpace/4-AIDataStore/ohiot1dm-cgm-tedata/@v0/feat_vocab.json
+cat _WorkSpace/4-AIDataStore/<aidata_name>/@<aidata_version>/cf_to_cfvocab.json
+cat _WorkSpace/4-AIDataStore/<aidata_name>/@<aidata_version>/feat_vocab.json
 ```
 
 ---

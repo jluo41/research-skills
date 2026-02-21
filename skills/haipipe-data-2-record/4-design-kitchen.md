@@ -44,21 +44,22 @@ Three-Class Architecture
 +-------------------v------------------------------+
 |  HumanFn loader   (builder/human.py)              |
 |  - Dynamic import from code/haifn/fn_record/human/|
-|  - Creates Human objects with demographics        |
+|  - Maps raw entity ID -> internal ID             |
+|  - Defines entity roster (Excluded_RawNameList)   |
 |                                                    |
 |  RecordFn loader  (builder/record.py)             |
 |  - Dynamic import from code/haifn/fn_record/record|
-|  - Processes each record type from SourceSet      |
+|  - Processes each time-series table from SourceSet|
 +-------------------+------------------------------+
                     | produces
 +-------------------v------------------------------+
 |  RecordSet  (record_set.py)                       |
 |  - Inherits from Asset base class                 |
 |  - Name_to_HRF: mixed string/tuple key dict      |
-|    {                                              |
-|      'HmPtt': <Human>,                            |
-|      ('HmPtt', 'Ptt'): <Record>,                  |
-|      ('HmPtt', 'CGM5Min'): <Record>,              |
+|    {  # Example (illustrative)                    |
+|      '<HumanFnName>': <Human>,                    |
+|      ('<HumanFnName>', '<RecordFn1>'): <Record>,  |
+|      ('<HumanFnName>', '<RecordFn2>'): <Record>,  |
 |    }                                              |
 |  - FLAT directory: Human-X/, Record-X.Y/          |
 |  - save_to_disk() / load_from_disk(path, SPACE)   |
@@ -75,7 +76,7 @@ Key Implementation Details
 **Record_Pipeline.__init__(config, SPACE):**
 - Reads `config['HumanRecords']` and `config.get('record_set_version', 0)`
 - Pre-loads HumanFn and RecordFn into `self.reusable_Name_to_Fn`
-  with keys like `'H:HmPtt'` and `'R:CGM5Min'`
+  with keys like `'H:<HumanFnName>'` and `'R:<RecordFnName>'`
 
 **Record_Pipeline.run(source_set, ...):**
 - Auto-generates record_set_name via `_generate_record_set_name()`

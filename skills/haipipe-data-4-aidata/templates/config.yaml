@@ -21,13 +21,16 @@ external_version: "@v1215"
 #   Format: "<RecSetName>/@v<N>CaseSet-<TriggerFolder>"
 #   Must match existing CaseSet in _WorkSpace/3-CaseStore/
 # -------------------------------------------------------------------
-case_set_name: "20250101_OhioT1DM_v0RecSet/@v0CaseSet-CGM5MinLTS"
+case_set_name: "<RecordSetName>/@v<N>CaseSet-<TriggerFolder>"
 
 # -------------------------------------------------------------------
 # AIData naming
 #   Output path: _WorkSpace/4-AIDataStore/<aidata_name>/@<aidata_version>/
+#
+#   To find existing CaseSets:
+#     ls _WorkSpace/3-CaseStore/
 # -------------------------------------------------------------------
-aidata_name: "ohiot1dm-cgm-tedata"
+aidata_name: "<aidata_name>"
 aidata_version: "v0"
 
 
@@ -79,11 +82,8 @@ SplitArgs:
 # ==============================================================================
 # Input Transform Configuration (REQUIRED)
 # ==============================================================================
-# Available input_methods:
-#   InputTEToken, InputMultiCGMSeqNumeric, InputMultiCGMSeqConcat,
-#   InputMultiCF, InputCGMEventText, InputCGMEventJSON,
-#   InputCGMWithEventChannels, InputMultiSeqConcat,
-#   InputTemporalInterleaving, CatInputMultiCFSparse
+# To find registered input methods (discover at runtime):
+#   ls code/haifn/fn_aidata/entryinput/
 #
 # Signatures (verified from source code):
 #   build_vocab_fn(InputArgs, CF_to_CFVocab) -> feat_vocab dict
@@ -150,8 +150,8 @@ InputArgs:
 # ==============================================================================
 # Output Transform Configuration (OPTIONAL: omit for inference-only pipelines)
 # ==============================================================================
-# Available output_methods:
-#   OutputNextToken, OutputNumericForecast, OutputSingleLabel
+# To find registered output methods (discover at runtime):
+#   ls code/haifn/fn_aidata/entryoutput/
 #
 # Signature (verified from source code):
 #   tfm_fn(case, OutputArgs) -> dict    (only 2 params!)
@@ -168,7 +168,7 @@ OutputArgs:
 # ==============================================================================
 # Output directory structure:
 #
-# _WorkSpace/4-AIDataStore/ohiot1dm-cgm-tedata/@v0/
+# _WorkSpace/4-AIDataStore/<aidata_name>/@<aidata_version>/
 # +-- train/                    HuggingFace Dataset (Parquet)
 # +-- validation/
 # +-- test-id/

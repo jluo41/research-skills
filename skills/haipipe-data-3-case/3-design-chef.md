@@ -4,18 +4,28 @@ Subcommand: design-chef
 Purpose: Create a new TriggerFn or CaseFn via the builder pattern.
 Edit builders in code-dev/ -> run -> generates code/haifn/fn_case/.
 
+This skill documents FRAMEWORK PATTERNS only -- not project-specific state.
+It applies to any domain: CGM, EHR, labs, wearables, or any event-triggered feature.
+
 ---
 
 Workflow
 ========
 
+0. **Inspect existing builders and registered Fns:**
+   ```bash
+   ls code-dev/1-PIPELINE/3-Case-WorkSpace/a*.py   # TriggerFn builders
+   ls code-dev/1-PIPELINE/3-Case-WorkSpace/c*.py   # CaseFn builders
+   ls code/haifn/fn_case/fn_trigger/               # already registered TriggerFns
+   ls code/haifn/fn_case/case_casefn/              # already registered CaseFns
+   ```
 1. **Present** plan to user -> **get** approval
 2. **Activate** environment:
    ```bash
    source .venv/bin/activate
    source env.sh
    ```
-3. **Copy** an existing builder as starting point
+3. **Copy** an existing builder as starting point (pick one closest to your use case)
 4. **Edit** [CUSTOMIZE] sections only (keep [BOILERPLATE] as-is)
 5. **Run** builder:
    ```bash
@@ -32,14 +42,15 @@ Builder Location
 
 ```
 code-dev/1-PIPELINE/3-Case-WorkSpace/
-+-- a1_build_trigger_cgm5minlts.py       (CGM long time series trigger)
-+-- a2_build_trigger_cgm5mindfcase.py    (DataFrame case trigger)
-+-- a3_build_trigger_cgm5minevent.py     (CGM event trigger)
-+-- c2_build_casefn_cgmvalue.py          (CGM value features Bf/Af 24h)
-+-- c3_build_casefn_demevent.py          (Diet/Exercise/Med event features)
-+-- c4_build_casefn_pdemobase.py         (Patient demographics)
-+-- other_proj/                           (Alternative case functions)
-+-- Old/                                  (Legacy builders)
++-- a<N>_build_trigger_<triggername>.py  (TriggerFn builders -- discover with ls)
++-- c<N>_build_casefn_<feature>.py       (CaseFn builders -- discover with ls)
++-- old/                                  (Legacy builders)
+```
+
+Discover existing builders:
+```bash
+ls code-dev/1-PIPELINE/3-Case-WorkSpace/a*.py   # TriggerFn builders
+ls code-dev/1-PIPELINE/3-Case-WorkSpace/c*.py   # CaseFn builders
 ```
 
 **Two types of builders:**
@@ -76,18 +87,19 @@ TriggerFn Module Structure
 
 ```python
 # Module-level metadata (all required):
-Trigger = "CGM5MinLTS"
+# Example (illustrative -- actual TriggerFn/HumanFn/RecordFn names from ls commands):
+Trigger = "<TriggerFnName>"
 
 Trigger_Args = {
-    'Trigger': 'CGM5MinLTS',
-    'case_id_columns': ['PID', 'lts_id', 'ObsDT'],
-    'case_raw_id_columns': ['PatientID', 'ObsDT'],
-    'HumanID_list': ['PID'],
-    'ObsDT': 'ObsDT',
+    'Trigger': '<TriggerFnName>',
+    'case_id_columns': ['<EntityID>', '<ObsDT>'],
+    'case_raw_id_columns': ['<RawEntityID>', '<ObsDT>'],
+    'HumanID_list': ['<EntityID>'],
+    'ObsDT': '<ObsDT>',
     'ROName_to_RONameArgs': {
-        'hHmPtt.rCGM5Min': {
-            'attribute_columns': ['PID', 'PatientID', 'DT_s', 'BGValue'],
-            'RecDT': 'DT_s'
+        'h<HumanFnName>.r<RecordFnName>': {
+            'attribute_columns': ['<EntityID>', '<RawEntityID>', '<DatetimeCol>', '<ValueCol>'],
+            'RecDT': '<DatetimeCol>'
         }
     },
     'min_segment_length': 36,
@@ -121,27 +133,28 @@ CaseFn Module Structure
 
 ```python
 # Module-level metadata (all required):
-CaseFnName = "CGMValueBf24h"
+# Example (illustrative -- actual HumanFn/RecordFn/CaseFn names from ls commands):
+CaseFnName = "<CaseFnName>"
 
-RO_to_ROName = {'RO': 'hHmPtt.rCGM5Min.cBf24h'}     # 3-PART ROName format!
+RO_to_ROName = {'RO': 'h<HumanFnName>.r<RecordFnName>.c<CkpdName>'}  # 3-PART ROName format!
 
-Ckpd_to_CkpdObsConfig = {'Bf24h': {
+Ckpd_to_CkpdObsConfig = {'<CkpdName>': {
     'DistStartToPredDT': -1440,     # Minutes from trigger to window start
     'DistEndToPredDT': 5,           # Minutes from trigger to window end
     'TimeUnit': 'min',
-    'StartIdx5Min': -288,           # Index offset (5-min units) for start
+    'StartIdx5Min': -288,           # Index offset (domain unit) for start
     'EndIdx5Min': 1                 # Index offset for end
 }}
 
 ROName_to_RONameInfo = {
-    'hHmPtt.rCGM5Min.cBf24h': {    # 3-part: h{Human}.r{Record}.c{Ckpd}
-        'HumanName': 'HmPtt',
-        'RecordName': 'CGM5Min',
-        'CkpdName': 'Bf24h'
+    'h<HumanFnName>.r<RecordFnName>.c<CkpdName>': {  # 3-part: h{Human}.r{Record}.c{Ckpd}
+        'HumanName': '<HumanFnName>',
+        'RecordName': '<RecordFnName>',
+        'CkpdName': '<CkpdName>'
     }
 }
 
-HumanRecords = {'HmPtt': ['CGM5Min']}
+HumanRecords = {'<HumanFnName>': ['<RecordFnName>']}
 
 COVocab = {
     'tid2tkn': ['<Pad>', '<UNK>'],
@@ -155,7 +168,7 @@ def fn_CaseFn(case_example, ROName_list, ROName_to_ROData,
 
     Args:
         case_example: Current case being processed (pd.Series or dict)
-        ROName_list: List of RONames (e.g., ['hHmPtt.rCGM5Min.cBf24h'])
+        ROName_list: List of RONames (e.g., ['h<HumanFnName>.r<RecordFnName>.c<CkpdName>'])
         ROName_to_ROData: Dict mapping ROName to extracted DataFrame
         ROName_to_ROInfo: Dict mapping ROName to parsed info dict
         COVocab: Vocabulary dict {tid2tkn: [...], tkn2tid: {...}}
@@ -164,7 +177,7 @@ def fn_CaseFn(case_example, ROName_list, ROName_to_ROData,
     Returns:
         dict with SUFFIX-ONLY keys:
         {'--tid': [...], '--wgt': [...], '--val': [...]}
-        Pipeline adds CaseFnName prefix: CGMValueBf24h--tid
+        Pipeline adds CaseFnName prefix: <CaseFnName>--tid
     """
     ROName = ROName_list[0]
     ROData = ROName_to_ROData.get(ROName)
@@ -230,27 +243,28 @@ ROName 3-Part Format
 ROName uses a **3-part** format: `h{Human}.r{Record}.c{Checkpoint}`
 
 ```
-hHmPtt.rCGM5Min.cBf24h
-|       |        +-- Checkpoint suffix (window)
-|       +-- Record name
+h<HumanFnName>.r<RecordFnName>.c<CkpdName>
+|               |               +-- Checkpoint suffix (window)
+|               +-- Record name
 +-- Human name (h prefix)
 ```
 
 This maps to ROName_to_RONameInfo:
 
 ```python
+# Example (illustrative -- discover actual HumanFn/RecordFn names with ls):
 ROName_to_RONameInfo = {
-    'hHmPtt.rCGM5Min.cBf24h': {
-        'HumanName': 'HmPtt',
-        'RecordName': 'CGM5Min',
-        'CkpdName': 'Bf24h'
+    'h<HumanFnName>.r<RecordFnName>.c<CkpdName>': {
+        'HumanName': '<HumanFnName>',
+        'RecordName': '<RecordFnName>',
+        'CkpdName': '<CkpdName>'
     }
 }
 ```
 
 The 3-part format is domain-general. Any Human/Record/Checkpoint combination works:
-- `hHmPtt.rLab7Day.cBf7d` -- Lab values, 7 days before
-- `hHmPtt.rVitalSign.cBf1h` -- Vital signs, 1 hour before
+- `h<HumanFn>.r<LabRecord>.cBf7d` -- Lab values, 7 days before
+- `h<HumanFn>.r<VitalSign>.cBf1h` -- Vital signs, 1 hour before
 
 ---
 
@@ -289,13 +303,13 @@ Record Object Access Pattern
 CaseFn accesses data through ROName_to_ROData:
 
 ```python
-# Access CGM data for the case's patient (windowed by checkpoint)
-ROName = ROName_list[0]                           # 'hHmPtt.rCGM5Min.cBf24h'
+# Access data for the case's entity (windowed by checkpoint)
+ROName = ROName_list[0]                           # 'h<HumanFnName>.r<RecordFnName>.c<CkpdName>'
 ROData = ROName_to_ROData.get(ROName)             # DataFrame with windowed data
 
-# Access specific columns
-glucose_values = ROData['BGValue'].values
-timestamps = ROData['DT_s'].values
+# Access specific columns (discover actual column names with head -30 on the RecordFn file)
+values = ROData['<ValueCol>'].values
+timestamps = ROData['<DatetimeCol>'].values
 
 # Access ROName info
 ROInfo = ROName_to_ROInfo[ROName]                 # {'HumanName', 'RecordName', 'CkpdName'}
@@ -311,9 +325,9 @@ MUST DO
 - **Follow** [BOILERPLATE] + [CUSTOMIZE] pattern in builders
 - **Set** RUN_TEST = True in builder
 - **Follow** `<Feature><Window>` naming convention for CaseFn names
-- **Use** 3-part ROName format: `hHmPtt.rCGM5Min.cBf24h`
+- **Use** 3-part ROName format: `h<HumanFnName>.r<RecordFnName>.c<CkpdName>`
 - **Declare** ROName_to_RONameInfo with all data dependencies
-- **Return** suffix-only keys from fn_CaseFn (e.g., `'--tid'`, NOT `'CGMValueBf24h--tid'`)
+- **Return** suffix-only keys from fn_CaseFn (e.g., `'--tid'`, NOT `'<CaseFnName>--tid'`)
 - **Name** trigger function `get_CaseTrigger_from_RecordBase` (NOT fn_TriggerFn)
 - **Include** Ckpd_to_CkpdObsConfig with DistStartToPredDT/StartIdx5Min keys
 - **Include** MetaDict at end of CaseFn module

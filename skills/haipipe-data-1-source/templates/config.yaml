@@ -3,6 +3,8 @@
 # ==============================================================================
 # Converts raw data files into a standardized SourceSet.
 #
+# Replace all <Placeholders> with actual values.
+#
 # Usage:
 #   source .venv/bin/activate
 #   source env.sh
@@ -21,22 +23,21 @@ SourceArgs:
   #   Name of the cohort directory in the SourceStore.
   #   Must match a directory under _WorkSpace/0-RawDataStore/
   #   or _WorkSpace/1-SourceStore/.
-  #   Examples: "OhioT1DM", "WellDoc2022CGM", "CGMacros", "dubosson"
+  #
+  #   To find available cohorts:
+  #     ls _WorkSpace/0-RawDataStore/
   # -------------------------------------------------------------------
-  raw_data_name: "OhioT1DM"
+  raw_data_name: "<CohortName>"
 
   # -------------------------------------------------------------------
   # SourceFnName  (REQUIRED)
   #   Name of the SourceFn to use for processing.
   #   Must match a file in code/haifn/fn_source/ (without .py).
-  #   Available SourceFns:
-  #     WellDocDataV251226   (WellDoc proprietary)
-  #     OhioT1DMxmlv250302   (OhioT1DM public)
-  #     CGMacrosV251227      (CGMacros public)
-  #     dubossonV251227      (Dubosson public)
-  #     AIREADIv2V251226     (AIREADI public)
+  #
+  #   To find available SourceFns:
+  #     ls code/haifn/fn_source/
   # -------------------------------------------------------------------
-  SourceFnName: "OhioT1DMxmlv250302"
+  SourceFnName: "<SourceFnName>"
 
   # -------------------------------------------------------------------
   # raw_data_path  (OPTIONAL)
@@ -46,7 +47,7 @@ SourceArgs:
   #   - S3 path: "s3://bucket/path/to/data"
   #   If given, overrides auto-discovery and cleans old @SourceFn caches.
   # -------------------------------------------------------------------
-  raw_data_path: "_WorkSpace/0-RawDataStore/OhioT1DM"
+  raw_data_path: "_WorkSpace/0-RawDataStore/<CohortName>"
 
   # -------------------------------------------------------------------
   # Cache settings  (OPTIONAL)
@@ -60,15 +61,10 @@ SourceArgs:
 # ==============================================================================
 # Output location:
 #   _WorkSpace/1-SourceStore/<raw_data_name>/@<SourceFnName>/
+#     <ProcName1>.parquet
+#     <ProcName2>.parquet
+#     ...
+#     manifest.json
 #
-# Example:
-#   _WorkSpace/1-SourceStore/OhioT1DM/@OhioT1DMxmlv250302/
-#       CGM.parquet
-#       Medication.parquet
-#       Diet.parquet
-#       Exercise.parquet
-#       Ptt.parquet
-#       Height.parquet
-#       Weight.parquet
-#       manifest.json
+# NOTE: Structure is FLAT (one parquet per ProcName at root level)
 # ==============================================================================

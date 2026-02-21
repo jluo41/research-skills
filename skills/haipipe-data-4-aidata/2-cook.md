@@ -4,6 +4,7 @@ Subcommand: cook
 Purpose: Run AIData_Pipeline with a YAML config (recipe).
 Kitchen (AIData_Pipeline) + Chef (TfmFn/SplitFn) already exist.
 You write the Recipe (config YAML).
+This subcommand applies to any domain.
 
 ---
 
@@ -45,7 +46,7 @@ aidata_set = pipeline.run(
     case_set=None,                   # Single CaseSet
     ds_case_combined=None,           # Pre-combined HF Dataset (fastest)
     case_set_manifest_list=None,     # Required with ds_case_combined
-    aidata_name='ohiot1dm-cgm-tedata',
+    aidata_name='<aidata_name>',
     aidata_version='v0'
 )
 
@@ -68,25 +69,31 @@ Config Structure
 ================
 
 ```yaml
-case_set_name: "20250101_OhioT1DM_v0RecSet/@v0CaseSet-CGM5MinLTS"
+# Replace <Placeholders> with actual values.
+# To find registered SplitFns:  ls code/haifn/fn_aidata/split/
+# To find registered Input Tfms: ls code/haifn/fn_aidata/entryinput/
+# To find registered Output Tfms: ls code/haifn/fn_aidata/entryoutput/
+# To find CaseFns in a CaseSet: ls _WorkSpace/3-CaseStore/<RecordSetName>/@*/
 
-aidata_name: "ohiot1dm-cgm-tedata"
+case_set_name: "<RecordSetName>/@v<N>CaseSet-<TriggerFolder>"
+
+aidata_name: "<aidata_name>"
 aidata_version: "v0"
 
 SplitArgs:        # Optional: omit to skip splitting
-  SplitMethod: SplitByTimeBin
-  ColumnName: split_timebin
+  SplitMethod: <SplitFnName>           # discover: ls code/haifn/fn_aidata/split/
+  ColumnName: <split_column>
 
 InputArgs:        # Required
-  input_method: InputTEToken
+  input_method: <InputTfmFnName>       # discover: ls code/haifn/fn_aidata/entryinput/
   input_casefn_list:
-    - CGMValueBf24h
+    - <CaseFnName1>                     # must exist in the CaseSet
   input_args: { ... }
 
 OutputArgs:       # Optional: omit for inference-only pipelines
-  output_method: OutputNumericForecast
+  output_method: <OutputTfmFnName>     # discover: ls code/haifn/fn_aidata/entryoutput/
   output_casefn_list:
-    - CGMValueAf24h
+    - <CaseFnName2>
   output_args: { ... }
 ```
 
@@ -102,7 +109,10 @@ How To Run
 ```bash
 source .venv/bin/activate
 source env.sh
-haistep-aidata --config tutorials/config/test-haistep-ohio/4_test_aidata-cgm-tedata.yaml
+haistep-aidata --config <your_config>.yaml
+
+# Find existing configs:
+ls config/   # look for test-haistep-* or aidata/ subdirectories
 ```
 
 **Test script:**
@@ -111,7 +121,7 @@ haistep-aidata --config tutorials/config/test-haistep-ohio/4_test_aidata-cgm-ted
 source .venv/bin/activate
 source env.sh
 python test/test_haistep/test_4_aidata/test_aidata.py \
-    --config tutorials/config/test-haistep-ohio/4_test_aidata-cgm-tedata.yaml
+    --config <your_config>.yaml
 ```
 
 **Python API:**
@@ -122,7 +132,7 @@ from haipipe.aidata_base.aidata_pipeline import AIData_Pipeline
 pipeline = AIData_Pipeline(config, SPACE)
 aidata_set = pipeline.run(
     case_set=case_set,
-    aidata_name='ohiot1dm-cgm-tedata',
+    aidata_name='<aidata_name>',
     aidata_version='v0'
 )
 ```
@@ -240,7 +250,7 @@ Naming Conventions
 ==================
 
 **Output asset naming:** `<aidata_name>/@<aidata_version>`
-  Example: `ohiot1dm-cgm-tedata/@v0`
+  Pattern: `<aidata_name>/@<aidata_version>`
 
 **Store path:** `_WorkSpace/4-AIDataStore/<aidata_name>/@<aidata_version>/`
 
